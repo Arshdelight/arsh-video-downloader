@@ -1,7 +1,10 @@
 {
   "name": "arsh-video-downloader",
   "description": "Tauri + React + TypeScript desktop app",
-  "author": {"name":"Liz","email":"cjhzisme@163.com"},
+  "author": {
+    "name": "Liz",
+    "email": "cjhzisme@163.com"
+  },
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -16,7 +19,6 @@
     "preview": "vite preview",
     "tauri": "tauri"
   },
-  "dependencies": {},
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/api": "^2.0.0",

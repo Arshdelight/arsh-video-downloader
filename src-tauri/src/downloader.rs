@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
@@ -52,19 +52,22 @@ const MAX_CONCURRENT: usize = 3;
 
 pub const EVENT: &str = "tasks-changed";
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
     pub id: u64,
     pub url: String,
     pub title: String,
-    /// pending | downloading | done | canceled | error
+    /// pending | downloading | paused | done | canceled | error
     pub status: String,
     pub progress: f64,
     pub speed: String,
     /// 任务开始时的目录快照；中途改下载目录不影响进行中的任务
     pub dir: String,
     pub error: String,
+    /// 下载完成后由 --print after_move:filepath 捕获的实际文件路径
+    #[serde(default)]
+    pub file_path: Option<String>,
 }
 
 pub struct Downloader {
@@ -74,8 +77,11 @@ pub struct Downloader {
     tasks: Mutex<Vec<Task>>,
     children: Mutex<HashMap<u64, Child>>,
     canceled: Mutex<HashSet<u64>>,
+    paused: Mutex<HashSet<u64>>,
     next_id: AtomicU64,
     slots: (Mutex<usize>, Condvar),
+    persist_path: Option<PathBuf>,
+    persist_lock: Mutex<()>,
 }
 
 /// 解析 yt-dlp --newline 的进度行：
@@ -95,17 +101,60 @@ pub fn parse_progress(line: &str) -> Option<(f64, String)> {
     Some((percent, speed))
 }
 
+/// 文件名安全化：去掉控制字符/零宽字符（抖音简介里常见，Windows 打开会 EINVAL）、
+/// 替换文件系统非法字符、截断长度
+fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(*c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
+        })
+        .map(|c| {
+            if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_end_matches(['.', ' ']).to_string();
+    let short: String = trimmed.chars().take(80).collect();
+    if short.is_empty() { "video".into() } else { short }
+}
+
 impl Downloader {
-    pub fn new(app: AppHandle, ytdlp: PathBuf, download_dir: String) -> Self {
+    pub fn new(
+        app: AppHandle,
+        ytdlp: PathBuf,
+        download_dir: String,
+        persist_path: Option<PathBuf>,
+        mut initial_tasks: Vec<Task>,
+    ) -> Self {
+        let mut next_id = 0u64;
+        let mut tasks = Vec::new();
+        for t in initial_tasks.drain(..) {
+            let mut t = t;
+            // 上次退出时还在排队/下载中的任务：进程已不在，标记为已暂停（可手动继续）
+            if matches!(t.status.as_str(), "downloading" | "pending") {
+                t.status = "paused".into();
+                t.speed.clear();
+            }
+            next_id = next_id.max(t.id);
+            tasks.push(t);
+        }
         Self {
             app,
             ytdlp,
             download_dir: Mutex::new(download_dir),
-            tasks: Mutex::new(Vec::new()),
+            tasks: Mutex::new(tasks),
             children: Mutex::new(HashMap::new()),
             canceled: Mutex::new(HashSet::new()),
-            next_id: AtomicU64::new(0),
+            paused: Mutex::new(HashSet::new()),
+            next_id: AtomicU64::new(next_id),
             slots: (Mutex::new(MAX_CONCURRENT), Condvar::new()),
+            persist_path,
+            persist_lock: Mutex::new(()),
         }
     }
 
@@ -115,6 +164,26 @@ impl Downloader {
 
     pub fn set_download_dir(&self, dir: String) {
         *self.download_dir.lock().unwrap() = dir;
+    }
+
+    pub fn task(&self, id: u64) -> Option<Task> {
+        self.tasks.lock().unwrap().iter().find(|t| t.id == id).cloned()
+    }
+
+    pub fn tasks(&self) -> Vec<Task> {
+        self.tasks.lock().unwrap().clone()
+    }
+
+    /// 任务列表落盘（进度条刷新不落盘，只在结构性变化/状态迁移时调用）
+    pub fn persist(&self) {
+        let Some(path) = &self.persist_path else { return };
+        let tasks = self.tasks.lock().unwrap().clone();
+        let json = serde_json::json!({ "tasks": tasks });
+        let _lock = self.persist_lock.lock().unwrap();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, json.to_string());
     }
 
     pub fn add_task(self: &Arc<Self>, url: String) -> u64 {
@@ -128,8 +197,10 @@ impl Downloader {
             speed: String::new(),
             dir: self.download_dir(),
             error: String::new(),
+            file_path: None,
         });
         self.emit_tasks();
+        self.persist();
         let me = Arc::clone(self);
         thread::spawn(move || me.run(id));
         id
@@ -147,10 +218,80 @@ impl Downloader {
             }
         });
         self.emit_tasks();
+        self.persist();
     }
 
-    pub fn tasks(&self) -> Vec<Task> {
-        self.tasks.lock().unwrap().clone()
+    /// 暂停：下载中 → 杀掉 yt-dlp（.part 文件保留，继续时断点续传）；
+    /// 排队中 → 直接标记已暂停，轮到它时不启动
+    pub fn pause_task(&self, id: u64) {
+        let status = self.task(id).map(|t| t.status);
+        match status.as_deref() {
+            Some("downloading") => {
+                self.paused.lock().unwrap().insert(id);
+                if let Some(child) = self.children.lock().unwrap().get_mut(&id) {
+                    let _ = child.kill();
+                }
+                // run() 收尾时落到 paused 并 emit
+            }
+            Some("pending") => {
+                self.paused.lock().unwrap().insert(id);
+                self.update(id, |t| {
+                    t.status = "paused".into();
+                    t.speed.clear();
+                });
+                self.emit_tasks();
+                self.persist();
+            }
+            _ => {}
+        }
+    }
+
+    /// 开始/继续：已暂停、失败、已取消的任务重新入队（yt-dlp 自动续传 .part）
+    pub fn start_task(self: &Arc<Self>, id: u64) {
+        let status = self.task(id).map(|t| t.status);
+        if !matches!(status.as_deref(), Some("paused") | Some("error") | Some("canceled")) {
+            return;
+        }
+        self.paused.lock().unwrap().remove(&id);
+        self.canceled.lock().unwrap().remove(&id);
+        self.update(id, |t| {
+            t.status = "pending".into();
+            t.error.clear();
+        });
+        self.emit_tasks();
+        self.persist();
+        let me = Arc::clone(self);
+        thread::spawn(move || me.run(id));
+    }
+
+    /// 删除任务；进行中/排队中的先终止。不删除已下载的文件。
+    pub fn delete_task(self: &Arc<Self>, id: u64) {
+        let status = self.task(id).map(|t| t.status);
+        if matches!(status.as_deref(), Some("downloading") | Some("pending")) {
+            self.canceled.lock().unwrap().insert(id);
+            self.paused.lock().unwrap().remove(&id);
+            if let Some(child) = self.children.lock().unwrap().get_mut(&id) {
+                let _ = child.kill();
+            }
+        }
+        self.tasks.lock().unwrap().retain(|t| t.id != id);
+        self.children.lock().unwrap().remove(&id);
+        self.emit_tasks();
+        self.persist();
+    }
+
+    /// 清空已结束（完成/取消/失败）的任务
+    pub fn clear_finished(&self) -> usize {
+        let mut tasks = self.tasks.lock().unwrap();
+        let before = tasks.len();
+        tasks.retain(|t| !matches!(t.status.as_str(), "done" | "canceled" | "error"));
+        let removed = before - tasks.len();
+        drop(tasks);
+        if removed > 0 {
+            self.emit_tasks();
+            self.persist();
+        }
+        removed
     }
 
     fn run(self: Arc<Self>, id: u64) {
@@ -167,6 +308,14 @@ impl Downloader {
             self.finish(id, "canceled");
             self.release_slot();
             self.emit_tasks();
+            self.persist();
+            return;
+        }
+        if self.paused.lock().unwrap().contains(&id) {
+            self.finish(id, "paused");
+            self.release_slot();
+            self.emit_tasks();
+            self.persist();
             return;
         }
 
@@ -178,10 +327,14 @@ impl Downloader {
         let result = self.spawn_ytdlp(id);
 
         self.release_slot();
+        let canceled = self.canceled.lock().unwrap().contains(&id);
+        let paused = self.paused.lock().unwrap().contains(&id);
         match result {
             Ok(()) => {
-                if self.canceled.lock().unwrap().contains(&id) {
+                if canceled {
                     self.finish(id, "canceled");
+                } else if paused {
+                    self.finish(id, "paused");
                 } else {
                     self.update(id, |t| {
                         t.status = "done".into();
@@ -191,16 +344,20 @@ impl Downloader {
                 }
             }
             Err(e) => {
-                let canceled = self.canceled.lock().unwrap().contains(&id);
                 self.update(id, |t| {
-                    t.status = if canceled { "canceled".into() } else { "error".into() };
-                    if !canceled {
+                    if canceled {
+                        t.status = "canceled".into();
+                    } else if paused {
+                        t.status = "paused".into();
+                    } else {
+                        t.status = "error".into();
                         t.error = e;
                     }
                 });
             }
         }
         self.emit_tasks();
+        self.persist();
     }
 
     /// 起进程下载，阻塞到进程退出。标题由 -J 探测，进度走 stdout。
@@ -227,6 +384,9 @@ impl Downloader {
         if self.canceled.lock().unwrap().contains(&id) {
             return Ok(());
         }
+        if self.paused.lock().unwrap().contains(&id) {
+            return Ok(());
+        }
 
         let mut child = new_command(&self.ytdlp)
             .args([
@@ -240,6 +400,10 @@ impl Downloader {
                 // Errno 22 两大来源的兜底：不回写文件 mtime；强制 Windows 安全文件名
                 "--no-mtime",
                 "--windows-filenames",
+                // 下载完成后把实际文件路径打到 stdout（配合 --no-quiet 保留进度输出）
+                "--print",
+                "after_move:filepath",
+                "--no-quiet",
                 "-P",
                 &dir,
                 "-o",
@@ -275,6 +439,14 @@ impl Downloader {
                 Ok(0) => break,
                 Ok(_) => {
                     let line = String::from_utf8_lossy(&raw);
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() && !trimmed.starts_with('[') {
+                        // --print after_move:filepath 的输出：裸路径行
+                        if std::path::Path::new(trimmed).exists() {
+                            let p = trimmed.to_string();
+                            self.update(id, |t| t.file_path = Some(p));
+                        }
+                    }
                     if let Some((percent, speed)) = parse_progress(&line) {
                         self.update(id, |t| {
                             t.progress = percent;
@@ -360,28 +532,6 @@ fn last_stderr_context(stderr: &[u8]) -> String {
         chars = chars.split_off(chars.len() - 400);
     }
     if chars.is_empty() { "下载失败".into() } else { chars.into_iter().collect() }
-}
-
-/// 文件名安全化：去掉控制字符/零宽字符（抖音简介里常见，Windows 打开会 EINVAL）、
-/// 替换文件系统非法字符、截断长度
-fn sanitize_filename(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .filter(|c| {
-            !c.is_control()
-                && !matches!(*c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
-        })
-        .map(|c| {
-            if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let trimmed = cleaned.trim().trim_end_matches(['.', ' ']).to_string();
-    let short: String = trimmed.chars().take(80).collect();
-    if short.is_empty() { "video".into() } else { short }
 }
 
 #[cfg(test)]

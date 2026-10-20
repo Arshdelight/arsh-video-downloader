@@ -1,14 +1,20 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
 import {
   CheckCircle2,
   Clock,
+  FileVideo2,
   FolderOpen,
   Link2,
   Loader2,
+  Pause,
+  Play,
   Plus,
-  X,
+  RotateCw,
+  Trash2,
   XCircle,
+  type LucideIcon,
 } from 'lucide-react'
 import { AppLayout, TitleBar, Button } from './ui'
 import { cn } from './lib/utils'
@@ -19,6 +25,7 @@ import { EVENT } from './lib/events'
 const STATUS_META: Record<Task['status'], { label: string; className: string }> = {
   pending: { label: '等待中', className: 'text-dim' },
   downloading: { label: '下载中', className: 'text-main' },
+  paused: { label: '已暂停', className: 'text-warning' },
   done: { label: '已完成', className: 'text-success' },
   canceled: { label: '已取消', className: 'text-dim' },
   error: { label: '失败', className: 'text-destructive' },
@@ -28,6 +35,8 @@ function StatusIcon({ status }: { status: Task['status'] }) {
   switch (status) {
     case 'downloading':
       return <Loader2 className="size-4 shrink-0 mt-0.5 animate-spin text-accent" />
+    case 'paused':
+      return <Pause className="size-4 shrink-0 mt-0.5 text-warning" />
     case 'done':
       return <CheckCircle2 className="size-4 shrink-0 mt-0.5 text-success" />
     case 'error':
@@ -39,12 +48,57 @@ function StatusIcon({ status }: { status: Task['status'] }) {
   }
 }
 
-function TaskRow({ task, onCancel }: { task: Task; onCancel: (id: number) => void }) {
+interface IconBtnProps {
+  title: string
+  icon: LucideIcon
+  onClick: () => void
+  danger?: boolean
+}
+
+function IconBtn({ title, icon: Icon, onClick, danger = false }: IconBtnProps) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      onContextMenu={(e) => e.stopPropagation()}
+      className={cn(
+        'size-6 flex items-center justify-center rounded-md transition-colors cursor-pointer',
+        danger
+          ? 'text-muted hover:text-destructive hover:bg-hover'
+          : 'text-muted hover:text-main hover:bg-hover',
+      )}
+      title={title}
+      aria-label={title}
+    >
+      <Icon className="size-3.5" />
+    </button>
+  )
+}
+
+interface TaskRowProps {
+  task: Task
+  onPause: (id: number) => void
+  onStart: (id: number) => void
+  onDelete: (id: number) => void
+  onOpenFile: (task: Task) => void
+  onOpenDir: (task: Task) => void
+  onContextMenu: (e: React.MouseEvent, task: Task) => void
+}
+
+function TaskRow({ task, onPause, onStart, onDelete, onOpenFile, onOpenDir, onContextMenu }: TaskRowProps) {
   const meta = STATUS_META[task.status]
-  const active = task.status === 'downloading' || task.status === 'pending'
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-3">
+    <div
+      className={cn(
+        'group rounded-lg border border-line bg-surface p-3 select-none',
+        'hover:border-accent/30 hover:bg-hover/30 transition-colors cursor-default',
+      )}
+      onContextMenu={(e) => onContextMenu(e, task)}
+      onDoubleClick={() => (task.status === 'done' ? onOpenFile(task) : onOpenDir(task))}
+    >
       <div className="flex items-start gap-2.5">
         <StatusIcon status={task.status} />
         <div className="flex-1 min-w-0">
@@ -58,26 +112,135 @@ function TaskRow({ task, onCancel }: { task: Task; onCancel: (id: number) => voi
             {task.status === 'error' && task.error && ` · ${task.error}`}
           </div>
         </div>
-        {active && (
-          <button
-            onClick={() => onCancel(task.id)}
-            className="size-6 shrink-0 flex items-center justify-center rounded-md text-muted hover:text-destructive hover:bg-hover transition-colors cursor-pointer"
-            title="取消"
-            aria-label="取消"
-          >
-            <X className="size-4" />
-          </button>
-        )}
+
+        {/* hover 快捷操作 */}
+        <div
+          className={cn(
+            'flex items-center gap-0.5 shrink-0 transition-opacity',
+            'opacity-0 group-hover:opacity-100',
+          )}
+        >
+          {task.status === 'downloading' && (
+            <IconBtn title="暂停" icon={Pause} onClick={() => onPause(task.id)} />
+          )}
+          {task.status === 'paused' && <IconBtn title="继续" icon={Play} onClick={() => onStart(task.id)} />}
+          {(task.status === 'error' || task.status === 'canceled') && (
+            <IconBtn title="重新下载" icon={RotateCw} onClick={() => onStart(task.id)} />
+          )}
+          {task.status === 'done' && (
+            <IconBtn title="打开文件" icon={FileVideo2} onClick={() => onOpenFile(task)} />
+          )}
+          <IconBtn title="删除任务" icon={Trash2} danger onClick={() => onDelete(task.id)} />
+        </div>
       </div>
-      {(task.status === 'downloading' || task.status === 'pending') && (
+      {(task.status === 'downloading' || task.status === 'paused') && (
         <div className="mt-2 h-1.5 rounded-full bg-hover overflow-hidden">
           <div
-            className="h-full rounded-full bg-accent transition-[width] duration-300"
-            style={{ width: `${task.status === 'pending' ? 0 : task.progress}%` }}
+            className={cn(
+              'h-full rounded-full transition-[width] duration-300',
+              task.status === 'paused' ? 'bg-warning' : 'bg-accent',
+            )}
+            style={{ width: `${task.progress}%` }}
           />
         </div>
       )}
     </div>
+  )
+}
+
+interface MenuItem {
+  label: string
+  icon: LucideIcon
+  danger?: boolean
+  onClick: () => void
+}
+
+function menuItemsFor(
+  task: Task,
+  actions: {
+    onPause: (id: number) => void
+    onStart: (id: number) => void
+    onDelete: (id: number) => void
+    onOpenFile: (task: Task) => void
+    onOpenDir: (task: Task) => void
+  },
+): MenuItem[] {
+  const items: MenuItem[] = []
+  if (task.status === 'downloading') {
+    items.push({ label: '暂停', icon: Pause, onClick: () => actions.onPause(task.id) })
+  }
+  if (task.status === 'paused') {
+    items.push({ label: '继续', icon: Play, onClick: () => actions.onStart(task.id) })
+  }
+  if (task.status === 'error' || task.status === 'canceled') {
+    items.push({ label: '重新下载', icon: RotateCw, onClick: () => actions.onStart(task.id) })
+  }
+  items.push({ label: '打开目录', icon: FolderOpen, onClick: () => actions.onOpenDir(task) })
+  if (task.status === 'done') {
+    items.push({ label: '打开文件', icon: FileVideo2, onClick: () => actions.onOpenFile(task) })
+  }
+  items.push({ label: '删除任务', icon: Trash2, danger: true, onClick: () => actions.onDelete(task.id) })
+  return items
+}
+
+interface MenuState {
+  x: number
+  y: number
+  task: Task
+}
+
+function ContextMenu({
+  menu,
+  actions,
+  onClose,
+}: {
+  menu: MenuState
+  actions: Parameters<typeof menuItemsFor>[1]
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const close = () => onClose()
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('click', close)
+    window.addEventListener('blur', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('blur', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  const items = menuItemsFor(menu.task, actions)
+  const left = Math.min(menu.x, window.innerWidth - 176)
+  const top = Math.min(menu.y, window.innerHeight - items.length * 32 - 8)
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90]" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }}>
+      <div
+        className="absolute min-w-40 rounded-lg border border-line bg-surface py-1 shadow-lg animate-[fade-in_100ms_ease-out]"
+        style={{ left, top }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {items.map((item) => (
+          <button
+            key={item.label}
+            onClick={() => {
+              item.onClick()
+              onClose()
+            }}
+            className={cn(
+              'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left cursor-pointer transition-colors',
+              item.danger ? 'text-destructive hover:bg-destructive/10' : 'text-main hover:bg-hover',
+            )}
+          >
+            <item.icon className="size-3.5 shrink-0" />
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -86,6 +249,7 @@ export default function App() {
   const [dir, setDir] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
   const [notice, setNotice] = useState('')
+  const [menu, setMenu] = useState<MenuState | null>(null)
 
   useEffect(() => {
     if (!hasNativeBridge) return
@@ -123,7 +287,19 @@ export default function App() {
       .catch((e) => console.error('选择目录失败:', e))
   }
 
+  const withOpenError = (p: Promise<void>) => p.catch((e) => console.error('打开失败:', e))
+  const actions = {
+    onPause: (id: number) => api.pauseTask(id).catch(() => {}),
+    onStart: (id: number) => api.startTask(id).catch(() => {}),
+    onDelete: (id: number) => api.deleteTask(id).catch(() => {}),
+    onOpenFile: (task: Task) => withOpenError(api.openTaskFile(task.id)),
+    onOpenDir: (task: Task) => withOpenError(api.openTaskDir(task.id)),
+  }
+
   const doneCount = tasks.filter((t) => t.status === 'done').length
+  const finishedCount = tasks.filter((t) =>
+    ['done', 'canceled', 'error'].includes(t.status),
+  ).length
 
   return (
     <AppLayout titleBar={<TitleBar brand="ArshVideoDownloader" />}>
@@ -176,13 +352,29 @@ export default function App() {
                 <span>
                   队列 {tasks.length} 个任务 · 已完成 {doneCount}
                 </span>
+                {finishedCount > 0 && (
+                  <button
+                    onClick={() => api.clearFinished().catch(() => {})}
+                    className="hover:text-main transition-colors cursor-pointer"
+                  >
+                    清空已完成
+                  </button>
+                )}
               </div>
               <div className="space-y-2">
                 {tasks.map((t) => (
                   <TaskRow
                     key={t.id}
                     task={t}
-                    onCancel={(id) => api.cancelTask(id).catch(() => {})}
+                    onPause={actions.onPause}
+                    onStart={actions.onStart}
+                    onDelete={actions.onDelete}
+                    onOpenFile={actions.onOpenFile}
+                    onOpenDir={actions.onOpenDir}
+                    onContextMenu={(e, task) => {
+                      e.preventDefault()
+                      setMenu({ x: e.clientX, y: e.clientY, task })
+                    }}
                   />
                 ))}
               </div>
@@ -190,6 +382,10 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {menu && (
+        <ContextMenu menu={menu} actions={actions} onClose={() => setMenu(null)} />
+      )}
     </AppLayout>
   )
 }

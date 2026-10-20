@@ -5,11 +5,12 @@ export interface Task {
   id: number
   url: string
   title: string
-  status: 'pending' | 'downloading' | 'done' | 'canceled' | 'error'
+  status: 'pending' | 'downloading' | 'paused' | 'done' | 'canceled' | 'error'
   progress: number
   speed: string
   dir: string
   error: string
+  filePath: string | null
 }
 
 /** 所有命令在纯网页模式（npm run dev:web）下降级为空实现 */
@@ -24,4 +25,16 @@ export const api = {
     hasNativeBridge ? invoke<number>('add_task', { url }) : Promise.resolve(0),
   cancelTask: (id: number): Promise<void> =>
     hasNativeBridge ? invoke<void>('cancel_task', { id }) : Promise.resolve(),
+  pauseTask: (id: number): Promise<void> =>
+    hasNativeBridge ? invoke<void>('pause_task', { id }) : Promise.resolve(),
+  startTask: (id: number): Promise<void> =>
+    hasNativeBridge ? invoke<void>('start_task', { id }) : Promise.resolve(),
+  deleteTask: (id: number): Promise<void> =>
+    hasNativeBridge ? invoke<void>('delete_task', { id }) : Promise.resolve(),
+  clearFinished: (): Promise<number> =>
+    hasNativeBridge ? invoke<number>('clear_finished') : Promise.resolve(0),
+  openTaskDir: (id: number): Promise<void> =>
+    hasNativeBridge ? invoke<void>('open_task_dir', { id }) : Promise.resolve(),
+  openTaskFile: (id: number): Promise<void> =>
+    hasNativeBridge ? invoke<void>('open_task_file', { id }) : Promise.resolve(),
 }
