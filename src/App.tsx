@@ -13,6 +13,7 @@ import {
   Plus,
   RotateCw,
   Trash2,
+  X,
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
@@ -250,16 +251,31 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [notice, setNotice] = useState('')
   const [menu, setMenu] = useState<MenuState | null>(null)
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null)
+  const [updating, setUpdating] = useState(false)
+  const [installed, setInstalled] = useState(false)
 
   useEffect(() => {
     if (!hasNativeBridge) return
     api.getDir().then(setDir).catch(() => {})
     api.listTasks().then(setTasks).catch(() => {})
+    api.isInstalled().then(setInstalled).catch(() => {})
+    // 启动静默检查更新（失败静默：无网络/latest.json 不存在时忽略）
+    api.checkUpdate().then((v) => v && setUpdateVersion(v)).catch(() => {})
     const un = listen<Task[]>(EVENT, (e) => setTasks(e.payload))
     return () => {
       un.then((f) => f())
     }
   }, [])
+
+  const doUpdate = () => {
+    setUpdating(true)
+    // 安装成功时应用会自动重启
+    api.installUpdate().catch((e) => {
+      setNotice(typeof e === 'string' ? e : String(e))
+      setUpdating(false)
+    })
+  }
 
   const add = () => {
     const text = url.trim()
@@ -308,6 +324,36 @@ export default function App() {
 
   return (
     <AppLayout titleBar={<TitleBar brand="ArshVideoDownloader" />}>
+      {updateVersion && (
+        <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 bg-warning/10 border-b border-line text-xs">
+          <span className="text-main">发现新版本 v{updateVersion}</span>
+          {installed ? (
+            <button
+              onClick={doUpdate}
+              disabled={updating}
+              className="font-medium text-accent hover:underline cursor-pointer disabled:opacity-50"
+            >
+              {updating ? '正在下载并安装…' : '立即更新'}
+            </button>
+          ) : (
+            <a
+              href="https://github.com/Arshdelight/arsh-video-downloader/releases/latest"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-accent hover:underline cursor-pointer"
+            >
+              前往下载页
+            </a>
+          )}
+          <button
+            onClick={() => setUpdateVersion(null)}
+            className="ml-auto text-dim hover:text-main cursor-pointer"
+            aria-label="关闭"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
       <div className="h-full flex flex-col">
         {/* 顶部：粘贴链接 + 下载目录 */}
         <div className="shrink-0 border-b border-line px-4 py-3 space-y-2.5">

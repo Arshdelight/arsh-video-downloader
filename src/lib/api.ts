@@ -37,4 +37,10 @@ export const api = {
     hasNativeBridge ? invoke<void>('open_task_dir', { id }) : Promise.resolve(),
   openTaskFile: (id: number): Promise<void> =>
     hasNativeBridge ? invoke<void>('open_task_file', { id }) : Promise.resolve(),
+  isInstalled: (): Promise<boolean> =>
+    hasNativeBridge ? invoke<boolean>('is_installed') : Promise.resolve(false),
+  checkUpdate: (): Promise<string | null> =>
+    hasNativeBridge ? invoke<string | null>('check_update') : Promise.resolve(null),
+  installUpdate: (): Promise<void> =>
+    hasNativeBridge ? invoke<void>('install_update') : Promise.resolve(),
 }

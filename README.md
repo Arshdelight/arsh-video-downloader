@@ -71,6 +71,21 @@ npm run build            # NSIS 安装器 → src-tauri/target/release/bundle/ns
 npm run build:portable   # 绿色版 zip → src-tauri/target/release/portable/
 ```
 
+### 发布与自动更新
+
+安装版内置应用内自动更新（启动时静默检查 → 一键更新），基于
+[tauri-plugin-updater](https://v2.tauri.app/plugin/updater/) + GitHub Releases：
+
+1. 生成一次签名密钥（私钥妥善保管，不入库）：
+   `npx tauri signer generate -w ~/.tauri/arsh-video-downloader.key`
+2. 仓库 Secrets 配置 `TAURI_SIGNING_PRIVATE_KEY`（私钥内容）与
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（空密码留空）
+3. 推送 `v*` tag → GitHub Actions 自动构建、签名、发布安装包和 `latest.json`
+4. 绿色版无法静默自更新（无安装位置概念），应用内会提示新版本并跳转下载页
+
+本地打包安装版同样需要签名密钥：设置环境变量 `TAURI_SIGNING_PRIVATE_KEY`
+（私钥文件内容）。绿色版无签名要求。
+
 ## 🗂 Structure
 
 ```

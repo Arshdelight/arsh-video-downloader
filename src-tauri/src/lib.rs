@@ -7,8 +7,12 @@ use std::sync::Arc;
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_updater::UpdaterExt;
 
 type SharedDownloader = Arc<Downloader>;
+
+/// 当前待安装的更新（check_update 后暂存，install_update 消费）
+struct UpdateState(std::sync::Mutex<Option<tauri_plugin_updater::Update>>);
 
 /// 数据目录。绿色版优先：exe 同目录（便携模式）；同目录写不进去时
 /// （如安装到 Program Files）退回 app_data_dir。
@@ -133,6 +137,46 @@ fn list_tasks(state: State<'_, SharedDownloader>) -> Vec<Task> {
     state.tasks()
 }
 
+/// 当前 exe 是否为安装版（绿色版走"前往下载页"更新，安装版走应用内更新）
+#[tauri::command]
+fn is_installed() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("uninstall.exe").exists()))
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+async fn check_update(
+    app: tauri::AppHandle,
+    state: State<'_, UpdateState>,
+) -> Result<Option<String>, String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater.check().await.map_err(|e| e.to_string())?;
+    let version = update.as_ref().map(|u| u.version.clone());
+    *state.0.lock().unwrap() = update;
+    Ok(version)
+}
+
+/// 下载并静默安装更新，完成后自动重启应用（仅安装版）
+#[tauri::command]
+async fn install_update(
+    app: tauri::AppHandle,
+    state: State<'_, UpdateState>,
+) -> Result<(), String> {
+    let update = state
+        .0
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or("没有待安装的更新，请先检查更新")?;
+    update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
+}
+
 /// 打开任务所在目录；已完成的文件在资源管理器中定位选中
 #[tauri::command]
 fn open_task_dir(
@@ -170,7 +214,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            app.manage(UpdateState(std::sync::Mutex::new(None)));
             // 调试入口：`cargo run -- --probe <url>` 只跑解析 sidecar 并打印结果
             let args: Vec<String> = std::env::args().collect();
             if let Some(pos) = args.iter().position(|a| a == "--probe") {
@@ -233,7 +279,10 @@ pub fn run() {
             clear_finished,
             list_tasks,
             open_task_dir,
-            open_task_file
+            open_task_file,
+            is_installed,
+            check_update,
+            install_update
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
