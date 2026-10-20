@@ -14,7 +14,7 @@
 - **抖音免登录** — 隐藏 WebView 页内签名方案：让抖音自己的前端 JS 给请求签名，无需登录、无需逆向、不打包浏览器
 - **B 站高清** — 内置 ffmpeg，DASH 分离流自动合并，未登录最高 1080P
 - **打开/定位** — 已完成文件一键打开或资源管理器定位
-- **跨会话持久化** — 任务列表重启恢复，绿色版配置跟随 exe
+- **跨会话持久化** — 任务列表重启恢复
 
 ## ⚙️ 工作原理
 
@@ -37,7 +37,6 @@
 到 [Releases](https://github.com/Arshdelight/arsh-video-downloader/releases) 获取：
 
 - `ArshVideoDownloader_x.y.z_x64-setup.exe` — 安装版（支持应用内自动更新）
-- `ArshVideoDownloader_x.y.z_Portable.zip` — 绿色版，解压即用
 
 ## 🛠 开发
 
@@ -68,7 +67,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File sidecar/build.ps1
 
 ```bash
 npm run build            # NSIS 安装器 → src-tauri/target/release/bundle/nsis/
-npm run build:portable   # 绿色版 zip → src-tauri/target/release/portable/
 ```
 
 ### 发布与自动更新
@@ -81,10 +79,9 @@ npm run build:portable   # 绿色版 zip → src-tauri/target/release/portable/
 2. 仓库 Secrets 配置 `TAURI_SIGNING_PRIVATE_KEY`（私钥内容）与
    `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（空密码留空）
 3. 推送 `v*` tag → GitHub Actions 自动构建、签名、发布安装包和 `latest.json`
-4. 绿色版无法静默自更新（无安装位置概念），应用内会提示新版本并跳转下载页
 
 本地打包安装版同样需要签名密钥：设置环境变量 `TAURI_SIGNING_PRIVATE_KEY`
-（私钥文件内容）。绿色版无签名要求。
+（私钥文件内容）。
 
 ## 🗂 Structure
 
@@ -100,7 +97,7 @@ npm run build:portable   # 绿色版 zip → src-tauri/target/release/portable/
 │   ├── ui/                  # ArshUI 组件 + 主题 tokens
 │   ├── lib/                 # api 封装、Tauri 桥接检测
 │   └── App.tsx              # 粘贴框 + 目录行 + 下载队列（右键菜单/快捷操作）
-└── tools/make-portable.mjs  # 绿色版组装
+└── vite.config.ts
 ```
 
 ## 📄 License

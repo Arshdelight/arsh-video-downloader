@@ -13,7 +13,6 @@
     "dev:web": "vite",
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npm run build:web && tauri build",
     "build:web": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc && vite build",
-    "build:portable": "node tools/make-portable.mjs",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test": "vitest run",
     "preview": "vite preview",
