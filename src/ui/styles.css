@@ -1,0 +1,96 @@
+/*
+ * Theme tokens.
+ *
+ * Every color maps to a plain CSS variable, so apps (and dark themes) can
+ * re-skin the whole kit by overriding the `:root` block below.
+ */
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-hover: var(--hover);
+  --color-accent: var(--accent);
+  --color-fg: var(--accent-foreground);
+  --color-main: var(--text-primary);
+  --color-muted: var(--text-secondary);
+  --color-dim: var(--text-tertiary);
+  --color-line: var(--border);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+}
+
+:root {
+  --page: #f1f5f9;
+  --surface: #ffffff;
+  --hover: #e2e8f0;
+  --accent: #1e293b;
+  --accent-foreground: #ffffff;
+  --text-primary: #1e293b;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #475569;
+  --border: #e2e8f0;
+  --destructive: #dc2626;
+  --success: #16a34a;
+  --warning: #d97706;
+  --info: #2563eb;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+}
+
+/*
+ * Frameless window dragging: put `data-tauri-drag-region` on the element that
+ * should drag the window (see src/ui/titleBar.tsx). Interactive children must
+ * not carry the attribute.
+ */
+
+svg:focus { outline: none; }
+svg *:focus { outline: none; }
+
+/* Overlay scrim shared by Dialog / Drawer / Toast containers */
+.arshui-scrim {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}

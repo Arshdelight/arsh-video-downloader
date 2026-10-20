@@ -1,0 +1,26 @@
+[package]
+name = "arshvideodownloader"
+version = "0.1.0"
+description = "Tauri + React + TypeScript desktop app"
+authors = ["You"]
+edition = "2021"
+
+[lib]
+name = "arshvideodownloader_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+# 控制产物体积：发布构建去符号 + LTO（需要更快增量编译时可注释掉）
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
