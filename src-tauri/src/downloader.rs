@@ -17,6 +17,9 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 fn new_command(ytdlp: &PathBuf) -> Command {
     let mut cmd = Command::new(ytdlp);
+    // yt-dlp 是 Python 程序：管道输出默认走系统 ANSI（中文 Windows = GBK），
+    // 强制 UTF-8，否则进度行里的中文文件名会产生非法字节流
+    cmd.env("PYTHONUTF8", "1").env("PYTHONIOENCODING", "utf-8");
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
@@ -252,25 +255,35 @@ impl Downloader {
         let stderr = child.stderr.take();
         self.children.lock().unwrap().insert(id, child);
 
-        // stderr 交给独立线程读净，只留全文供出错时取最后一行
-        let last_err = Arc::new(Mutex::new(String::new()));
+        // stderr 交给独立线程读净（按字节，容错编码），只留全文供出错时取上下文
+        let last_err = Arc::new(Mutex::new(Vec::new()));
         if let Some(mut stderr) = stderr {
             let last_err = Arc::clone(&last_err);
             thread::spawn(move || {
-                let mut buf = String::new();
-                let _ = stderr.read_to_string(&mut buf);
-                *last_err.lock().unwrap() = buf;
+                let _ = stderr.read_to_end(&mut last_err.lock().unwrap());
             });
         }
 
-        for line in BufReader::new(stdout).lines() {
-            let Ok(line) = line else { break };
-            if let Some((percent, speed)) = parse_progress(&line) {
-                self.update(id, |t| {
-                    t.progress = percent;
-                    t.speed = speed.clone();
-                });
-                self.emit_tasks();
+        // 逐字节读行 + lossy 解码：绝不能因非法 UTF-8 提前 break——
+        // 管道读端一旦关闭，yt-dlp 下一次写进度就会得到 Windows 的
+        // EINVAL (22)，任务直接以 "Unable to download video" 失败
+        let mut reader = BufReader::new(stdout);
+        let mut raw: Vec<u8> = Vec::new();
+        loop {
+            raw.clear();
+            match reader.read_until(b'\n', &mut raw) {
+                Ok(0) => break,
+                Ok(_) => {
+                    let line = String::from_utf8_lossy(&raw);
+                    if let Some((percent, speed)) = parse_progress(&line) {
+                        self.update(id, |t| {
+                            t.progress = percent;
+                            t.speed = speed.clone();
+                        });
+                        self.emit_tasks();
+                    }
+                }
+                Err(_) => break,
             }
         }
 
@@ -285,7 +298,8 @@ impl Downloader {
         if status.success() {
             return Ok(());
         }
-        let msg = last_err.lock().unwrap().clone();
+        let raw = last_err.lock().unwrap().clone();
+        let msg = String::from_utf8_lossy(&raw).into_owned();
         Err(if msg.trim().is_empty() {
             format!("yt-dlp 异常退出（{:?}）", status.code())
         } else {
