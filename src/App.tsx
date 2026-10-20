@@ -6,18 +6,20 @@ import {
   Clock,
   FileVideo2,
   FolderOpen,
+  ExternalLink,
   Link2,
   Loader2,
   Pause,
   Play,
   Plus,
   RotateCw,
+  Settings,
   Trash2,
   X,
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
-import { AppLayout, TitleBar, Button } from './ui'
+import { AppLayout, TitleBar, Button, Dialog } from './ui'
 import { cn } from './lib/utils'
 import { hasNativeBridge } from './lib/tauri'
 import { api, type Task } from './lib/api'
@@ -254,6 +256,10 @@ export default function App() {
   const [updateVersion, setUpdateVersion] = useState<string | null>(null)
   const [updating, setUpdating] = useState(false)
   const [installed, setInstalled] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [appVersion, setAppVersion] = useState('')
+  const [engines, setEngines] = useState({ ytdlp: true, ffmpeg: true, parsehub: true })
+  const [checkState, setCheckState] = useState<'idle' | 'checking' | 'latest' | 'available'>('idle')
 
   useEffect(() => {
     if (!hasNativeBridge) return
@@ -267,6 +273,28 @@ export default function App() {
       un.then((f) => f())
     }
   }, [])
+
+  useEffect(() => {
+    if (!settingsOpen || !hasNativeBridge) return
+    // 每次打开设置页刷新版本与引擎状态
+    api.getAppVersion().then(setAppVersion).catch(() => {})
+    api.engineStatus().then(setEngines).catch(() => {})
+  }, [settingsOpen])
+
+  const checkNow = () => {
+    setCheckState('checking')
+    api
+      .checkUpdate()
+      .then((v) => {
+        if (v) {
+          setUpdateVersion(v)
+          setCheckState('available')
+        } else {
+          setCheckState('latest')
+        }
+      })
+      .catch(() => setCheckState('idle'))
+  }
 
   const doUpdate = () => {
     setUpdating(true)
@@ -323,7 +351,23 @@ export default function App() {
   ).length
 
   return (
-    <AppLayout titleBar={<TitleBar brand="ArshVideoDownloader" />}>
+    <AppLayout
+      titleBar={
+        <TitleBar
+          brand="ArshVideoDownloader"
+          actions={
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="size-5 flex items-center justify-center text-muted hover:text-main transition-colors cursor-pointer"
+              title="设置"
+              aria-label="设置"
+            >
+              <Settings className="size-3.5" />
+            </button>
+          }
+        />
+      }
+    >
       {updateVersion && (
         <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 bg-warning/10 border-b border-line text-xs">
           <span className="text-main">发现新版本 v{updateVersion}</span>
@@ -433,6 +477,87 @@ export default function App() {
           )}
         </div>
       </div>
+
+      <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)}>
+        <div className="p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-main">设置</h2>
+            <button
+              onClick={() => setSettingsOpen(false)}
+              className="text-muted hover:text-main transition-colors cursor-pointer"
+              aria-label="关闭"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted">版本</span>
+              <span className="text-sm text-main">v{appVersion}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted">检查更新</span>
+              <Button size="sm" variant="secondary" onClick={checkNow} loading={checkState === 'checking'}>
+                {checkState === 'checking' ? '检查中…' : '检查更新'}
+              </Button>
+            </div>
+            {checkState === 'latest' && <div className="text-xs text-success">✓ 已是最新版本</div>}
+            {checkState === 'available' && (
+              <div className="text-xs text-warning">
+                发现新版本 v{updateVersion}
+                {installed && (
+                  <button
+                    onClick={doUpdate}
+                    disabled={updating}
+                    className="ml-2 text-accent hover:underline cursor-pointer disabled:opacity-50"
+                  >
+                    {updating ? '正在更新…' : '立即更新'}
+                  </button>
+                )}
+                {!installed && (
+                  <button
+                    onClick={() => api.openRepo().catch(() => {})}
+                    className="ml-2 text-accent hover:underline cursor-pointer"
+                  >
+                    前往下载页
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="h-px bg-line" />
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs text-muted">
+              <span>引擎状态</span>
+              <span className={cn(engines.ytdlp && engines.ffmpeg && engines.parsehub ? 'text-success' : 'text-destructive')}>
+                yt-dlp {engines.ytdlp ? '✓' : '✗'} · ffmpeg {engines.ffmpeg ? '✓' : '✗'} · ParseHub{' '}
+                {engines.parsehub ? '✓' : '✗'}
+              </span>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<FolderOpen className="size-3.5" />}
+                onClick={() => api.openDataDir().catch(() => {})}
+              >
+                数据目录
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<ExternalLink className="size-3.5" />}
+                onClick={() => api.openRepo().catch(() => {})}
+              >
+                GitHub 仓库
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Dialog>
 
       {menu && (
         <ContextMenu menu={menu} actions={actions} onClose={() => setMenu(null)} />

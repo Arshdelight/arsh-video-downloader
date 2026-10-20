@@ -43,4 +43,14 @@ export const api = {
     hasNativeBridge ? invoke<string | null>('check_update') : Promise.resolve(null),
   installUpdate: (): Promise<void> =>
     hasNativeBridge ? invoke<void>('install_update') : Promise.resolve(),
+  getAppVersion: (): Promise<string> =>
+    hasNativeBridge ? invoke<string>('get_app_version') : Promise.resolve('0.0.0-dev'),
+  engineStatus: (): Promise<{ ytdlp: boolean; ffmpeg: boolean; parsehub: boolean }> =>
+    hasNativeBridge
+      ? invoke<{ ytdlp: boolean; ffmpeg: boolean; parsehub: boolean }>('engine_status')
+      : Promise.resolve({ ytdlp: true, ffmpeg: true, parsehub: true }),
+  openDataDir: (): Promise<void> =>
+    hasNativeBridge ? invoke<void>('open_data_dir') : Promise.resolve(),
+  openRepo: (): Promise<void> =>
+    hasNativeBridge ? invoke<void>('open_repo') : Promise.resolve(),
 }

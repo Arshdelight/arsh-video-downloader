@@ -147,6 +147,59 @@ fn is_installed() -> bool {
 }
 
 #[tauri::command]
+fn get_app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+/// 引擎就绪状态（设置页展示）；与 setup 的解析逻辑保持一致
+#[tauri::command]
+fn engine_status(app: tauri::AppHandle) -> serde_json::Value {
+    let dev_bin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries");
+    let bundled = |name: &str| -> bool {
+        app.path()
+            .resource_dir()
+            .map(|d| d.join("binaries").join(name).exists())
+            .unwrap_or(false)
+            || dev_bin.join(name).exists()
+    };
+    let sidecar = {
+        let bundled = app
+            .path()
+            .resource_dir()
+            .map(|d| {
+                d.join("binaries")
+                    .join("parsehub-sidecar")
+                    .join("parsehub-probe.exe")
+                    .exists()
+            })
+            .unwrap_or(false)
+            || dev_bin
+                .join("parsehub-sidecar")
+                .join("parsehub-probe.exe")
+                .exists();
+        bundled
+    };
+    serde_json::json!({ "ytdlp": bundled("yt-dlp.exe"), "ffmpeg": bundled("ffmpeg.exe"), "parsehub": sidecar })
+}
+
+/// 打开数据目录（config.json / tasks.json 所在位置）
+#[tauri::command]
+fn open_data_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = data_dir(&app).ok_or("无法定位数据目录")?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    app.opener()
+        .open_path(dir.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_repo(app: tauri::AppHandle) -> Result<(), String> {
+    app.opener()
+        .open_url("https://github.com/Arshdelight/arsh-video-downloader", None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn check_update(
     app: tauri::AppHandle,
     state: State<'_, UpdateState>,
@@ -282,7 +335,11 @@ pub fn run() {
             open_task_file,
             is_installed,
             check_update,
-            install_update
+            install_update,
+            get_app_version,
+            engine_status,
+            open_data_dir,
+            open_repo
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
