@@ -1,6 +1,6 @@
 [package]
 name = "arsh-video-downloader"
-version = "0.1.3"
+version = "0.1.4"
 description = "Tauri + React + TypeScript desktop app"
 authors = ["You"]
 edition = "2021"

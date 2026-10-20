@@ -54,6 +54,12 @@ export function Dialog({
         if (closeOnOverlay && e.target === e.currentTarget) onClose()
       }}
     >
+      {/* 覆盖层会挡住标题栏的拖动区：补一条同高拖动带，弹窗打开时窗口仍可拖动 */}
+      <div
+        data-tauri-drag-region
+        className="absolute inset-x-0 top-0 h-7"
+        onClick={(e) => e.stopPropagation()}
+      />
       <div
         role="dialog"
         aria-modal="true"

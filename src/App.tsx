@@ -224,6 +224,12 @@ function ContextMenu({
 
   return createPortal(
     <div className="fixed inset-0 z-[90]" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }}>
+      {/* 保留标题栏拖动能力（与 Dialog 同款处理） */}
+      <div
+        data-tauri-drag-region
+        className="absolute inset-x-0 top-0 h-7"
+        onClick={(e) => e.stopPropagation()}
+      />
       <div
         className="absolute min-w-40 rounded-lg border border-line bg-surface py-1 shadow-lg animate-[fade-in_100ms_ease-out]"
         style={{ left, top }}
