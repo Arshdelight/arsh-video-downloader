@@ -41,3 +41,8 @@ src-tauri/binaries/yt-dlp.exe
 
 # 合并引擎（构建前下载：见 README）
 src-tauri/binaries/ffmpeg.exe
+
+# sidecar 构建产物
+sidecar/.venv
+sidecar/build-work
+src-tauri/binaries/parsehub-sidecar

@@ -1,5 +1,5 @@
-mod douyin_probe;
 mod downloader;
+mod parsehub_probe;
 
 use downloader::{Downloader, Task};
 use std::path::PathBuf;
@@ -171,14 +171,14 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // 调试入口：`cargo run -- --probe-douyin <url>` 只跑抖音探测并打印结果
+            // 调试入口：`cargo run -- --probe <url>` 只跑解析 sidecar 并打印结果
             let args: Vec<String> = std::env::args().collect();
-            if let Some(pos) = args.iter().position(|a| a == "--probe-douyin") {
+            if let Some(pos) = args.iter().position(|a| a == "--probe") {
                 if let Some(url) = args.get(pos + 1).cloned() {
                     let handle = app.handle().clone();
                     std::thread::spawn(move || {
-                        match douyin_probe::probe(&handle, &url) {
-                            Ok(o) => println!("PROBE_OK\ttitle={}\turl={}", o.title, o.video_url),
+                        match parsehub_probe::probe(&handle, &url) {
+                            Ok(o) => println!("PROBE_OK\ttitle={}\tname={}\turl={}", o.title, o.name, o.video_url),
                             Err(e) => println!("PROBE_ERR\t{e}"),
                         }
                         std::process::exit(0);

@@ -1,75 +1,93 @@
 # Arsh Video Downloader
 
-轻量通用视频下载器：粘贴任意平台的视频链接，走 yt-dlp 引擎解析直链并并发下载。Tauri 2 + React + TypeScript，安装包只有几 MB。
+[![Release](https://img.shields.io/github/v/release/Arshdelight/arsh-video-downloader)](https://github.com/Arshdelight/arsh-video-downloader/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## 功能
+轻量通用视频下载器：粘贴链接或整段分享文案，自动识别并下载。Tauri 2 + React + TypeScript，安装包仅数 MB。
 
-- 粘贴链接即下载，支持一次粘贴多个（空格分隔）；解析由内置 yt-dlp 完成（抖音、B站、YouTube、Twitter 等数千个站点）
-- 下载队列：最多 3 个并发，带进度条、实时速度、单任务取消
-- 下载目录可自由选择，持久化保存；**中途更换目录不影响进行中的任务**（每个任务持有开始时的目录快照）
-- 无边框窗口 + 自定义标题栏（ArshUI 风格）
+> A lightweight universal video downloader (Douyin / Bilibili / YouTube / Twitter ...) built with Tauri 2. GUI wrapper around the `ParseHub` + `yt-dlp` + `ffmpeg` stack.
 
-## 开发
+## ✨ 功能
+
+- **粘贴即下载** — 支持整段分享文案（自动提取其中的链接，口令/话题等杂质自动忽略）
+- **下载队列** — 最多 3 并发，进度条、实时速度、暂停/继续（断点续传）、单任务删除
+- **抖音免登录** — 隐藏 WebView 页内签名方案：让抖音自己的前端 JS 给请求签名，无需登录、无需逆向、不打包浏览器
+- **B 站高清** — 内置 ffmpeg，DASH 分离流自动合并，未登录最高 1080P
+- **打开/定位** — 已完成文件一键打开或资源管理器定位
+- **跨会话持久化** — 任务列表重启恢复，绿色版配置跟随 exe
+
+## ⚙️ 工作原理
+
+```
+粘贴文案 ──► 链接提取 ──► ┌─ 抖音 ────► ParseHub sidecar（页内反爬签名由上游库维护）
+                          └─ 其他平台 ─► yt-dlp -J 探测
+                                      │
+                                      ▼
+                        yt-dlp 纯下载（直链）+ ffmpeg 合并 DASH
+```
+
+| 引擎 | 职责 | 说明 |
+|---|---|---|
+| [ParseHub](https://github.com/z-mio/ParseHub) (MIT) | 抖音等国内平台解析 | 反爬签名随上游更新，本应用不自研签名算法 |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense) | 其他平台解析 + 全平台下载 | 断点续传、进度解析 |
+| ffmpeg | 合并音视频分离流（DASH） | 随应用分发 |
+
+## 📦 下载
+
+到 [Releases](https://github.com/Arshdelight/arsh-video-downloader/releases) 获取：
+
+- `ArshVideoDownloader_x.y.z_x64-setup.exe` — 安装版（支持应用内自动更新）
+- `ArshVideoDownloader_x.y.z_Portable.zip` — 绿色版，解压即用
+
+## 🛠 开发
+
+前置要求：Node.js ≥ 20.11、Rust ≥ 1.77.2、WebView2（Win10/11 自带）。
 
 ```bash
 npm install
 npm run dev        # 启动桌面应用（首次会编译 Rust，之后秒开）
-npm run dev:web    # 只跑前端（UI 开发，无 Rust 桥接，自动降级）
-npm run build      # 类型检查 + 前端构建 + 打包安装器到 src-tauri/target/release/bundle/
-npm run lint       # ESLint，零警告
-npm test           # vitest
-cargo test         # Rust 侧测试（进度行解析），在 src-tauri/ 下执行
+npm run dev:web    # 只跑前端（无 Rust 桥接，自动降级）
+npm run lint && npm test
 ```
 
-构建前下载引擎二进制（均已 gitignore，不入库）：
+### 引擎二进制（构建前下载，均已 gitignore）
 
 ```bash
-# yt-dlp 下载引擎（必需）
+# yt-dlp（必需）
 curl -L -o src-tauri/binaries/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
 
-# ffmpeg 合并引擎（必需，音视频分离的流如 B 站高清需要合并；也可 winget 安装后从
-# %LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg*\...\bin\ffmpeg.exe 复制）
+# ffmpeg（必需，合并 DASH 分离流；winget 安装后复制，或任一下载渠道）
 winget install Gyan.FFmpeg
+# 复制 %LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg*\*\bin\ffmpeg.exe 到 src-tauri/binaries/
+
+# ParseHub 解析 sidecar（会自动建 venv 并用 PyInstaller 打包，详见 sidecar/build.ps1）
+powershell -NoProfile -ExecutionPolicy Bypass -File sidecar/build.ps1
 ```
 
-## Structure
-
-```
-├── src-tauri/
-│   ├── src/lib.rs       # 命令：目录选择/持久化、任务的增查删
-│   ├── src/downloader.rs# 下载管理器：队列并发、yt-dlp 进程、进度解析、取消
-│   ├── binaries/yt-dlp.exe  # 下载引擎（随应用打包）
-│   ├── capabilities/    # 权限：窗口控制 + 目录选择对话框
-│   └── tauri.conf.json
-├── src/
-│   ├── ui/              # ArshUI 组件 + 主题 tokens
-│   ├── lib/             # api 封装、Tauri 桥接检测、事件名
-│   └── App.tsx          # 粘贴框 + 目录行 + 下载队列
-└── vite.config.ts
-```
-
-前置要求：Node.js ≥ 20.11、Rust ≥ 1.77.2、WebView2（Win10/11 自带）。
-
-## 打包
+### 打包
 
 ```bash
 npm run build            # NSIS 安装器 → src-tauri/target/release/bundle/nsis/
-npm run build:portable   # 绿色版 zip（免安装）→ src-tauri/target/release/portable/
+npm run build:portable   # 绿色版 zip → src-tauri/target/release/portable/
 ```
 
-绿色版目录布局：`ArshVideoDownloader.exe + binaries/yt-dlp.exe`，解压即用；配置持久化在 exe 同目录的 `config.json`（安装版写不进 Program Files 时自动落到 AppData）。
+## 🗂 Structure
 
-- 自定义图标：放一张 ≥ 1024×1024 的方形 PNG，跑 `npx tauri icon <png>` 重新生成 `src-tauri/icons/`。
-- 安装器元数据在 `src-tauri/tauri.conf.json`（`identifier`、`productName`）。
-- 发布体积优化（LTO/strip）在 `src-tauri/Cargo.toml` 的 `[profile.release]`。
+```
+├── src-tauri/
+│   ├── src/lib.rs           # 命令层：目录选择/持久化、任务增删改查、退出落盘
+│   ├── src/downloader.rs    # 下载管理器：队列并发、yt-dlp 进程、进度/暂停/续传
+│   ├── src/parsehub_probe.rs# 解析 sidecar 调用（抖音等国内平台）
+│   ├── binaries/            # yt-dlp.exe / ffmpeg.exe / parsehub-sidecar（不入库）
+│   └── tauri.conf.json
+├── sidecar/                 # ParseHub sidecar 入口 + PyInstaller 打包脚本
+├── src/
+│   ├── ui/                  # ArshUI 组件 + 主题 tokens
+│   ├── lib/                 # api 封装、Tauri 桥接检测
+│   └── App.tsx              # 粘贴框 + 目录行 + 下载队列（右键菜单/快捷操作）
+└── tools/make-portable.mjs  # 绿色版组装
+```
 
-## Notes
+## 📄 License
 
-- 视频直链的获取完全交给 yt-dlp（签名、反爬由其社区维护），升级引擎只需替换 `src-tauri/binaries/yt-dlp.exe`；抖音走内置隐藏 WebView 的页内签名方案
-- ffmpeg 用于合并音视频分离的流（B 站高清、Twitter 等），随应用打包；格式选择为 `bv*+ba/b`（最佳画质+音质，无分离流时退回单文件）
-
-## AI coding tools
-
-`AGENTS.md` holds the project conventions. On the first session it walks the
-tool through a short interview and writes the final conventions for this
-project.
+[MIT](LICENSE)。 yt-dlp / ParseHub / ffmpeg 为独立项目，遵循其各自许可证；本应用以独立进程调用它们。

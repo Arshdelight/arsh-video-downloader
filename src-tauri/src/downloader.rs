@@ -423,12 +423,16 @@ impl Downloader {
         };
 
         // 抖音：yt-dlp 的提取器无法过抖音风控（detail API 强制 a_bogus 签名，cookie 无关），
-        // 改用隐藏 WebView 在页面上下文里拿签名过的直链，yt-dlp 只负责纯下载
+        // 走 ParseHub 解析 sidecar（上游库维护签名）拿直链，yt-dlp 只负责纯下载
         let is_douyin = url.contains("douyin.com");
         let (title, target, output_template) = if is_douyin {
-            let outcome = crate::douyin_probe::probe(&self.app, &url)?;
-            let template = format!("{}.%(ext)s", sanitize_filename(&outcome.title));
-            (outcome.title, outcome.video_url, template)
+            let outcome = crate::parsehub_probe::probe(&self.app, &url)?;
+            let base = if outcome.name.is_empty() {
+                sanitize_filename(&outcome.title)
+            } else {
+                sanitize_filename(&outcome.name)
+            };
+            (outcome.title, outcome.video_url, format!("{base}.%(ext)s"))
         } else {
             // 先探测标题（-J 只拿元数据，不下视频）
             let title = self.probe_title(&url)?;

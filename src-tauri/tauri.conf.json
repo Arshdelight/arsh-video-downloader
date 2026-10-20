@@ -31,7 +31,8 @@
     "targets": "all",
     "resources": [
       "binaries/yt-dlp.exe",
-      "binaries/ffmpeg.exe"
+      "binaries/ffmpeg.exe",
+      "binaries/parsehub-sidecar"
     ],
     "icon": [
       "icons/32x32.png",
