@@ -25,6 +25,10 @@ import { hasNativeBridge } from './lib/tauri'
 import { api, type Task } from './lib/api'
 import { EVENT } from './lib/events'
 
+// 软件介绍（设置页「关于」与队列空状态共用）
+const ABOUT_TEXT =
+  '轻量通用视频下载器：粘贴视频链接或整段分享文案，自动解析直链并下载。内置 ParseHub / yt-dlp / ffmpeg 三引擎，支持抖音、B站、YouTube、Twitter 等数十个站点，公开视频无需登录。'
+
 const STATUS_META: Record<Task['status'], { label: string; className: string }> = {
   pending: { label: '等待中', className: 'text-dim' },
   downloading: { label: '下载中', className: 'text-main' },
@@ -438,7 +442,7 @@ export default function App() {
               <Link2 className="size-8 text-line" />
               <p className="text-sm text-muted">还没有下载任务</p>
               <p className="text-xs text-dim">
-                复制任意平台的视频链接粘贴到上方，支持抖音、B站、YouTube、Twitter 等站点
+                粘贴视频链接或整段分享文案即可开始，支持抖音、B站、YouTube、Twitter 等数十个站点
               </p>
             </div>
           ) : (
@@ -491,11 +495,17 @@ export default function App() {
             </button>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted">版本</span>
-              <span className="text-sm text-main">v{appVersion}</span>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-main">ArshVideoDownloader</h3>
+              <span className="text-xs text-dim">v{appVersion}</span>
             </div>
+            <p className="text-xs text-muted leading-relaxed">{ABOUT_TEXT}</p>
+          </div>
+
+          <div className="h-px bg-line" />
+
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted">检查更新</span>
               <Button size="sm" variant="secondary" onClick={checkNow} loading={checkState === 'checking'}>
