@@ -69,6 +69,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File sidecar/build.ps1
 npm run build            # NSIS 安装器 → src-tauri/target/release/bundle/nsis/
 ```
 
+- 自定义图标：源文件为 `app-icon.svg`，修改后栅格化为 1024×1024 PNG（如用 headless Edge 截图），再跑
+  `npx tauri icon app-icon.png` 重新生成 `src-tauri/icons/`（含安装包使用的 icon.ico）。
+
 ### 发布与自动更新
 
 安装版内置应用内自动更新（启动时静默检查 → 一键更新），基于
