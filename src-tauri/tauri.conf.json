@@ -30,7 +30,8 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "binaries/yt-dlp.exe"
+      "binaries/yt-dlp.exe",
+      "binaries/ffmpeg.exe"
     ],
     "icon": [
       "icons/32x32.png",

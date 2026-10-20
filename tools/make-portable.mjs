@@ -13,19 +13,23 @@ const version = conf.version
 
 const exe = path.join(root, 'src-tauri', 'target', 'release', `${pkg.name}.exe`)
 const ytdlp = path.join(root, 'src-tauri', 'binaries', 'yt-dlp.exe')
+const ffmpeg = path.join(root, 'src-tauri', 'binaries', 'ffmpeg.exe')
 for (const f of [exe, ytdlp]) {
   if (!fs.existsSync(f)) {
     throw new Error(`缺少 ${f} —— 请先执行 npm run build`)
   }
 }
 
-// 便携目录布局：exe + binaries/yt-dlp.exe（与安装版 resource 布局一致）
+// 便携目录布局：exe + binaries/（与安装版 resource 布局一致）
 const outDir = path.join(root, 'src-tauri', 'target', 'release', 'portable')
 const stage = path.join(outDir, productName)
 fs.rmSync(stage, { recursive: true, force: true })
 fs.mkdirSync(path.join(stage, 'binaries'), { recursive: true })
 fs.copyFileSync(exe, path.join(stage, `${productName}.exe`))
 fs.copyFileSync(ytdlp, path.join(stage, 'binaries', 'yt-dlp.exe'))
+if (fs.existsSync(ffmpeg)) {
+  fs.copyFileSync(ffmpeg, path.join(stage, 'binaries', 'ffmpeg.exe'))
+}
 
 const zip = path.join(outDir, `${productName}_${version}_Portable.zip`)
 fs.rmSync(zip, { force: true })

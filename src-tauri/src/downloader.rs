@@ -73,6 +73,7 @@ pub struct Task {
 pub struct Downloader {
     app: AppHandle,
     ytdlp: PathBuf,
+    ffmpeg: Option<PathBuf>,
     download_dir: Mutex<String>,
     tasks: Mutex<Vec<Task>>,
     children: Mutex<HashMap<u64, Child>>,
@@ -127,6 +128,7 @@ impl Downloader {
     pub fn new(
         app: AppHandle,
         ytdlp: PathBuf,
+        ffmpeg: Option<PathBuf>,
         download_dir: String,
         persist_path: Option<PathBuf>,
         mut initial_tasks: Vec<Task>,
@@ -146,6 +148,7 @@ impl Downloader {
         Self {
             app,
             ytdlp,
+            ffmpeg,
             download_dir: Mutex::new(download_dir),
             tasks: Mutex::new(tasks),
             children: Mutex::new(HashMap::new()),
@@ -439,28 +442,36 @@ impl Downloader {
             return Ok(());
         }
 
+        // 音视频分离的流（B站高清、Twitter 等）需要 ffmpeg 合并；
+        // -f "bv*+ba/b"：最佳视频+最佳音频合并，无分离流时退回单文件格式
+        let mut args: Vec<String> = vec![
+            "-f".into(),
+            "bv*+ba/b".into(),
+            "--no-playlist".into(),
+            "--newline".into(),
+            "--no-warnings".into(),
+            "--socket-timeout".into(),
+            "30".into(),
+            // Errno 22 两大来源的兜底：不回写文件 mtime；强制 Windows 安全文件名
+            "--no-mtime".into(),
+            "--windows-filenames".into(),
+            // 下载完成后把实际文件路径打到 stdout（配合 --no-quiet 保留进度输出）
+            "--print".into(),
+            "after_move:filepath".into(),
+            "--no-quiet".into(),
+            "-P".into(),
+            dir.clone(),
+            "-o".into(),
+            output_template.clone(),
+        ];
+        if let Some(ff) = &self.ffmpeg {
+            args.push("--ffmpeg-location".into());
+            args.push(ff.display().to_string());
+        }
+        args.push(target.clone());
+
         let mut child = new_command(&self.ytdlp)
-            .args([
-                "-f",
-                "b",
-                "--no-playlist",
-                "--newline",
-                "--no-warnings",
-                "--socket-timeout",
-                "30",
-                // Errno 22 两大来源的兜底：不回写文件 mtime；强制 Windows 安全文件名
-                "--no-mtime",
-                "--windows-filenames",
-                // 下载完成后把实际文件路径打到 stdout（配合 --no-quiet 保留进度输出）
-                "--print",
-                "after_move:filepath",
-                "--no-quiet",
-                "-P",
-                &dir,
-                "-o",
-                &output_template,
-                &target,
-            ])
+            .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()

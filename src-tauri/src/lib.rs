@@ -199,12 +199,23 @@ pub fn run() {
             if !ytdlp.exists() {
                 return Err("未找到 yt-dlp 引擎（src-tauri/binaries/yt-dlp.exe）".into());
             }
+            // ffmpeg 可选：缺失时音视频分离的流（B站高清等）无法合并，会退回单文件格式
+            let ffmpeg = {
+                let bundled = app.path().resource_dir()?.join("binaries").join("ffmpeg.exe");
+                if bundled.exists() {
+                    Some(bundled)
+                } else {
+                    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries").join("ffmpeg.exe");
+                    dev.exists().then_some(dev)
+                }
+            };
             let dir = load_download_dir(app.handle());
             let tasks = load_tasks(app.handle());
             let persist = tasks_path(app.handle());
             app.manage(Arc::new(Downloader::new(
                 app.handle().clone(),
                 ytdlp,
+                ffmpeg,
                 dir,
                 persist,
                 tasks,

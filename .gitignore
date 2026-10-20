@@ -38,3 +38,6 @@ coverage/
 
 # 下载引擎二进制（构建前下载：见 README）
 src-tauri/binaries/yt-dlp.exe
+
+# 合并引擎（构建前下载：见 README）
+src-tauri/binaries/ffmpeg.exe

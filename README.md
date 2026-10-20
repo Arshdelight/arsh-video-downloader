@@ -21,12 +21,15 @@ npm test           # vitest
 cargo test         # Rust 侧测试（进度行解析），在 src-tauri/ 下执行
 ```
 
-前置要求：Node.js ≥ 20.11、Rust ≥ 1.77.2、WebView2（Win10/11 自带）。
-
-构建前下载引擎二进制（已 gitignore，不入库）：
+构建前下载引擎二进制（均已 gitignore，不入库）：
 
 ```bash
+# yt-dlp 下载引擎（必需）
 curl -L -o src-tauri/binaries/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
+
+# ffmpeg 合并引擎（必需，音视频分离的流如 B 站高清需要合并；也可 winget 安装后从
+# %LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg*\...\bin\ffmpeg.exe 复制）
+winget install Gyan.FFmpeg
 ```
 
 ## Structure
@@ -45,6 +48,8 @@ curl -L -o src-tauri/binaries/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releas
 └── vite.config.ts
 ```
 
+前置要求：Node.js ≥ 20.11、Rust ≥ 1.77.2、WebView2（Win10/11 自带）。
+
 ## 打包
 
 ```bash
@@ -60,8 +65,8 @@ npm run build:portable   # 绿色版 zip（免安装）→ src-tauri/target/rele
 
 ## Notes
 
-- 视频直链的获取完全交给 yt-dlp（签名、反爬由其社区维护），升级引擎只需替换 `src-tauri/binaries/yt-dlp.exe`
-- 未打包 ffmpeg：音视频分离的流（如 B 站高清晰度）会自动退回单流格式；需要最高画质时后续再考虑内置 ffmpeg
+- 视频直链的获取完全交给 yt-dlp（签名、反爬由其社区维护），升级引擎只需替换 `src-tauri/binaries/yt-dlp.exe`；抖音走内置隐藏 WebView 的页内签名方案
+- ffmpeg 用于合并音视频分离的流（B 站高清、Twitter 等），随应用打包；格式选择为 `bv*+ba/b`（最佳画质+音质，无分离流时退回单文件）
 
 ## AI coding tools
 
