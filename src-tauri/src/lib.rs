@@ -142,9 +142,10 @@ fn open_task_dir(
 ) -> Result<(), String> {
     let task = state.task(id).ok_or("任务不存在")?;
     let opener = app.opener();
-    if let Some(fp) = &task.file_path {
-        if std::path::Path::new(fp).exists() {
-            return opener.reveal_item_in_dir(fp).map_err(|e| e.to_string());
+    // 已完成的任务：尝试定位到具体文件
+    if task.status == "done" {
+        if let Ok((_, path)) = state.resolve_file_path(id) {
+            return opener.reveal_item_in_dir(&path).map_err(|e| e.to_string());
         }
     }
     std::fs::create_dir_all(&task.dir).map_err(|e| e.to_string())?;
@@ -158,12 +159,10 @@ fn open_task_file(
     state: State<'_, SharedDownloader>,
     id: u64,
 ) -> Result<(), String> {
-    let task = state.task(id).ok_or("任务不存在")?;
-    let path = task.file_path.ok_or("文件尚未下载完成")?;
-    if !std::path::Path::new(&path).exists() {
-        return Err("文件不存在，可能已被移动或删除".into());
-    }
-    app.opener().open_path(&path, None::<&str>).map_err(|e| e.to_string())
+    let (_, path) = state.resolve_file_path(id)?;
+    app.opener()
+        .open_path(path.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

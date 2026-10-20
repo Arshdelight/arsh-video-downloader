@@ -170,6 +170,57 @@ impl Downloader {
         self.tasks.lock().unwrap().iter().find(|t| t.id == id).cloned()
     }
 
+    /// 解析任务对应的文件路径。file_path 缺失（旧版本下载的任务没有捕获）时，
+    /// 按标题前缀在任务目录里扫描最近的匹配文件并回填。
+    pub fn resolve_file_path(&self, id: u64) -> Result<(Task, PathBuf), String> {
+        let task = self.task(id).ok_or("任务不存在")?;
+        if let Some(fp) = task.file_path.clone() {
+            if std::path::Path::new(&fp).exists() {
+                return Ok((task, PathBuf::from(fp)));
+            }
+        }
+        if task.status != "done" {
+            return Err("文件尚未下载完成".into());
+        }
+
+        let dir = std::path::Path::new(&task.dir);
+        let prefix: String = sanitize_filename(&task.title).chars().take(20).collect();
+        let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
+        let entries = std::fs::read_dir(dir).map_err(|e| format!("无法读取下载目录: {e}"))?;
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if !p.is_file() {
+                continue;
+            }
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if !name.starts_with(&prefix) {
+                continue;
+            }
+            let ext_ok = matches!(
+                p.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref(),
+                Some("mp4" | "mkv" | "webm" | "mov" | "m4a" | "mp3")
+            );
+            if !ext_ok {
+                continue;
+            }
+            let modified = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            if best.as_ref().map(|(_, t)| modified > *t).unwrap_or(true) {
+                best = Some((p, modified));
+            }
+        }
+
+        let path = best.map(|(p, _)| p).ok_or("未在下载目录中找到对应的视频文件")?;
+        self.update(id, |t| t.file_path = Some(path.to_string_lossy().into_owned()));
+        self.persist();
+        Ok((task, path))
+    }
+
     pub fn tasks(&self) -> Vec<Task> {
         self.tasks.lock().unwrap().clone()
     }

@@ -287,7 +287,12 @@ export default function App() {
       .catch((e) => console.error('选择目录失败:', e))
   }
 
-  const withOpenError = (p: Promise<void>) => p.catch((e) => console.error('打开失败:', e))
+  const withOpenError = (p: Promise<void>) =>
+    p.catch((e) => {
+      const msg = typeof e === 'string' ? e : String(e)
+      setNotice(msg)
+      window.setTimeout(() => setNotice(''), 5000)
+    })
   const actions = {
     onPause: (id: number) => api.pauseTask(id).catch(() => {}),
     onStart: (id: number) => api.startTask(id).catch(() => {}),
