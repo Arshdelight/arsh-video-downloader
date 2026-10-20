@@ -1,12 +1,12 @@
 [package]
-name = "arshvideodownloader"
+name = "arsh-video-downloader"
 version = "0.1.0"
 description = "Tauri + React + TypeScript desktop app"
 authors = ["You"]
 edition = "2021"
 
 [lib]
-name = "arshvideodownloader_lib"
+name = "arsh_video_downloader_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

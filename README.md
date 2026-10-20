@@ -45,11 +45,23 @@ curl -L -o src-tauri/binaries/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releas
 └── vite.config.ts
 ```
 
+## 打包
+
+```bash
+npm run build            # NSIS 安装器 → src-tauri/target/release/bundle/nsis/
+npm run build:portable   # 绿色版 zip（免安装）→ src-tauri/target/release/portable/
+```
+
+绿色版目录布局：`ArshVideoDownloader.exe + binaries/yt-dlp.exe`，解压即用；配置持久化在 exe 同目录的 `config.json`（安装版写不进 Program Files 时自动落到 AppData）。
+
+- 自定义图标：放一张 ≥ 1024×1024 的方形 PNG，跑 `npx tauri icon <png>` 重新生成 `src-tauri/icons/`。
+- 安装器元数据在 `src-tauri/tauri.conf.json`（`identifier`、`productName`）。
+- 发布体积优化（LTO/strip）在 `src-tauri/Cargo.toml` 的 `[profile.release]`。
+
 ## Notes
 
 - 视频直链的获取完全交给 yt-dlp（签名、反爬由其社区维护），升级引擎只需替换 `src-tauri/binaries/yt-dlp.exe`
 - 未打包 ffmpeg：音视频分离的流（如 B 站高清晰度）会自动退回单流格式；需要最高画质时后续再考虑内置 ffmpeg
-- 下载目录持久化在 `%APPDATA%/com.arshdelight.arshvideodownloader/config.json`
 
 ## AI coding tools
 

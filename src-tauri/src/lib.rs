@@ -8,8 +8,25 @@ use tauri_plugin_dialog::DialogExt;
 
 type SharedDownloader = Arc<Downloader>;
 
-/// 下载目录持久化在 app_data_dir/config.json
+/// 配置文件路径。绿色版优先：exe 同目录的 config.json（便携模式）；
+/// 同目录写不进去时（如安装到 Program Files）退回 app_data_dir。
 fn config_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let portable = dir.join("config.json");
+            if portable.exists() {
+                return Some(portable);
+            }
+            if std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(&portable)
+                .is_ok()
+            {
+                return Some(portable);
+            }
+        }
+    }
     app.path().app_data_dir().ok().map(|d| d.join("config.json"))
 }
 

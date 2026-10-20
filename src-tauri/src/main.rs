@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    arshvideodownloader_lib::run()
+    arsh_video_downloader_lib::run()
 }
