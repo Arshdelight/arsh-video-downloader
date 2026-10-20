@@ -1,3 +1,4 @@
+mod douyin_probe;
 mod downloader;
 
 use downloader::Downloader;
@@ -104,6 +105,22 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // 调试入口：`cargo run -- --probe-douyin <url>` 只跑抖音探测并打印结果
+            let args: Vec<String> = std::env::args().collect();
+            if let Some(pos) = args.iter().position(|a| a == "--probe-douyin") {
+                if let Some(url) = args.get(pos + 1).cloned() {
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        match douyin_probe::probe(&handle, &url) {
+                            Ok(o) => println!("PROBE_OK\ttitle={}\turl={}", o.title, o.video_url),
+                            Err(e) => println!("PROBE_ERR\t{e}"),
+                        }
+                        std::process::exit(0);
+                    });
+                    return Ok(());
+                }
+            }
+
             let ytdlp = {
                 let bundled = app.path().resource_dir()?.join("binaries").join("yt-dlp.exe");
                 if bundled.exists() {

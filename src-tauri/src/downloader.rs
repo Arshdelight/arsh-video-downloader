@@ -208,11 +208,19 @@ impl Downloader {
             (t.url.clone(), t.dir.clone())
         };
 
-        // 先探测标题（-J 只拿元数据，不下视频）
-        match self.probe_title(&url) {
-            Ok(title) => self.update(id, |t| t.title = title),
-            Err(e) => return Err(e),
-        }
+        // 抖音：yt-dlp 的提取器无法过抖音风控（detail API 强制 a_bogus 签名，cookie 无关），
+        // 改用隐藏 WebView 在页面上下文里拿签名过的直链，yt-dlp 只负责纯下载
+        let is_douyin = url.contains("douyin.com");
+        let (title, target, output_template) = if is_douyin {
+            let outcome = crate::douyin_probe::probe(&self.app, &url)?;
+            let template = format!("{}.%(ext)s", sanitize_filename(&outcome.title));
+            (outcome.title, outcome.video_url, template)
+        } else {
+            // 先探测标题（-J 只拿元数据，不下视频）
+            let title = self.probe_title(&url)?;
+            (title, url, "%(title)s [%(id)s].%(ext)s".to_string())
+        };
+        self.update(id, |t| t.title = title);
         if self.canceled.lock().unwrap().contains(&id) {
             return Ok(());
         }
@@ -229,8 +237,8 @@ impl Downloader {
                 "-P",
                 &dir,
                 "-o",
-                "%(title)s [%(id)s].%(ext)s",
-                &url,
+                &output_template,
+                &target,
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -322,6 +330,23 @@ impl Downloader {
 fn last_stderr_line(stderr: &[u8]) -> String {
     let text = String::from_utf8_lossy(stderr);
     text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("下载失败").trim().to_string()
+}
+
+/// 文件名安全化：替换非法字符、截断长度
+fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_end_matches('.').to_string();
+    let short: String = trimmed.chars().take(80).collect();
+    if short.is_empty() { "video".into() } else { short }
 }
 
 #[cfg(test)]
