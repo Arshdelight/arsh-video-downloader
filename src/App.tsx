@@ -85,6 +85,7 @@ export default function App() {
   const [url, setUrl] = useState('')
   const [dir, setDir] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
+  const [notice, setNotice] = useState('')
 
   useEffect(() => {
     if (!hasNativeBridge) return
@@ -101,7 +102,15 @@ export default function App() {
     if (!text) return
     api
       .addTask(text)
-      .then(() => setUrl(''))
+      .then((added) => {
+        if (added > 0) {
+          setUrl('')
+          setNotice('')
+        } else {
+          setNotice('未在输入中识别到视频链接，请粘贴包含 http(s):// 的链接')
+          window.setTimeout(() => setNotice(''), 4000)
+        }
+      })
       .catch((e) => console.error('添加任务失败:', e))
   }
 
@@ -128,7 +137,7 @@ export default function App() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && add()}
-                placeholder="粘贴视频链接，支持一次粘贴多个（空格分隔）"
+                placeholder="粘贴视频链接或整段分享文案，会自动识别其中的链接"
                 className="w-full h-8 rounded-lg border border-line bg-surface pl-8 pr-3 text-sm text-main placeholder:text-dim focus:outline-none focus:ring-2 focus:ring-accent/20"
               />
             </div>
@@ -136,6 +145,7 @@ export default function App() {
               添加下载
             </Button>
           </div>
+          {notice && <div className="text-xs text-destructive">{notice}</div>}
           <div className="flex items-center gap-1.5 text-xs text-muted min-w-0">
             <FolderOpen className="size-3.5 shrink-0" />
             <span className="truncate" title={dir}>

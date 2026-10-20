@@ -8,6 +8,43 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+/// Windows 下隐藏子进程的控制台窗口（GUI 程序拉起 yt-dlp 时会弹黑框）
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn new_command(ytdlp: &PathBuf) -> Command {
+    let mut cmd = Command::new(ytdlp);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+/// 从整段分享文案里提取链接：只有 http(s)/www 开头的 token 才算，
+/// 口令码、话题、标题等杂质直接丢弃，并去掉粘在链接尾部的中文标点。
+pub fn extract_urls(text: &str) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+    for token in text.split_whitespace() {
+        let is_url =
+            token.starts_with("http://") || token.starts_with("https://") || token.starts_with("www.");
+        if !is_url {
+            continue;
+        }
+        let cleaned = token
+            .trim_end_matches([
+                '，', '。', '！', '？', '；', '、', '）', '】', '》', '"', '"', '\u{2018}',
+                '\u{2019}', '\'', '"',
+            ])
+            .to_string();
+        if !cleaned.is_empty() && !urls.contains(&cleaned) {
+            urls.push(cleaned);
+        }
+    }
+    urls
+}
+
 const MAX_CONCURRENT: usize = 3;
 
 pub const EVENT: &str = "tasks-changed";
@@ -180,7 +217,7 @@ impl Downloader {
             return Ok(());
         }
 
-        let mut child = Command::new(&self.ytdlp)
+        let mut child = new_command(&self.ytdlp)
             .args([
                 "-f",
                 "b",
@@ -246,7 +283,7 @@ impl Downloader {
     }
 
     fn probe_title(&self, url: &str) -> Result<String, String> {
-        let out = Command::new(&self.ytdlp)
+        let out = new_command(&self.ytdlp)
             .args(["-J", "--no-playlist", "--no-warnings", "--socket-timeout", "30", url])
             .output()
             .map_err(|e| format!("启动 yt-dlp 失败: {e}"))?;
@@ -289,7 +326,27 @@ fn last_stderr_line(stderr: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_progress;
+    use super::{extract_urls, parse_progress};
+
+    #[test]
+    fn extracts_urls_from_share_text() {
+        let text = "8.71 :7pm 01/14 CHi:/ D@u.FU 全网创一代择偶真心话，就听我这条就够了，笑死 # 情感 # 创一代  https://v.douyin.com/WkrVLq3vOFY/ 复制此链接，打开Dou音搜索，直接观看视频！";
+        assert_eq!(extract_urls(text), vec!["https://v.douyin.com/WkrVLq3vOFY/"]);
+    }
+
+    #[test]
+    fn trims_trailing_chinese_punctuation() {
+        assert_eq!(
+            extract_urls("好看 https://v.douyin.com/abc123，"),
+            vec!["https://v.douyin.com/abc123"]
+        );
+    }
+
+    #[test]
+    fn dedupes_and_ignores_non_urls() {
+        assert_eq!(extract_urls("https://a.com https://a.com # 情感 8.71"), vec!["https://a.com"]);
+        assert!(extract_urls("没有链接 # 话题 8.71 :7pm").is_empty());
+    }
 
     #[test]
     fn parses_percent_and_speed() {

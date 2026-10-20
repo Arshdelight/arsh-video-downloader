@@ -80,12 +80,12 @@ fn select_download_dir(
     Ok(picked)
 }
 
-/// 支持一次粘贴多个链接（按空白分隔），逐个入队
+/// 从粘贴的整段分享文案中提取链接（口令码/话题/标题等杂质自动忽略），逐个入队
 #[tauri::command]
 fn add_task(state: State<'_, SharedDownloader>, url: String) -> usize {
-    url.split_whitespace()
-        .filter(|s| !s.is_empty())
-        .map(|u| state.add_task(u.to_string()))
+    downloader::extract_urls(&url)
+        .iter()
+        .map(|u| state.add_task(u.clone()))
         .count()
 }
 
