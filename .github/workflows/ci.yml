@@ -41,6 +41,16 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # tauri-build 编译期校验 resources 存在；测试只放占位空文件
+      - name: Stub engine binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries/parsehub-sidecar | Out-Null
+          foreach ($f in 'yt-dlp.exe', 'ffmpeg.exe') {
+            New-Item -ItemType File -Force -Path "src-tauri/binaries/$f" | Out-Null
+          }
+          New-Item -ItemType File -Force -Path src-tauri/binaries/parsehub-sidecar/parsehub-probe.exe | Out-Null
+
       # generate_context! embeds the frontend assets, so dist/ must exist
       - run: npm ci
 
