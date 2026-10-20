@@ -1,14 +1,115 @@
-/// 命令示例：前端 `invoke('greet', { name })` 调用。
-/// 新命令写在这里（或按模块拆分），并注册到下方 `generate_handler!`。
+mod downloader;
+
+use downloader::Downloader;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tauri::{Manager, State};
+use tauri_plugin_dialog::DialogExt;
+
+type SharedDownloader = Arc<Downloader>;
+
+/// 下载目录持久化在 app_data_dir/config.json
+fn config_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("config.json"))
+}
+
+fn load_download_dir(app: &tauri::AppHandle) -> String {
+    if let Some(p) = config_path(app) {
+        if let Ok(text) = std::fs::read_to_string(&p) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                if let Some(dir) = v["downloadDir"].as_str() {
+                    if !dir.is_empty() {
+                        return dir.to_string();
+                    }
+                }
+            }
+        }
+    }
+    app.path()
+        .download_dir()
+        .map(|d| d.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| String::from("C:\\Users\\Public\\Downloads"))
+}
+
+fn save_download_dir(app: &tauri::AppHandle, dir: &str) -> Result<(), String> {
+    let p = config_path(app).ok_or("无法定位配置目录")?;
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::json!({ "downloadDir": dir });
+    std::fs::write(&p, json.to_string()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {name}! You've been greeted from Rust!")
+fn get_download_dir(state: State<'_, SharedDownloader>) -> String {
+    state.download_dir()
+}
+
+/// 弹出系统目录选择框；选中后更新并持久化。进行中的任务不受影响（各自持有目录快照）。
+#[tauri::command]
+fn select_download_dir(
+    app: tauri::AppHandle,
+    state: State<'_, SharedDownloader>,
+) -> Result<Option<String>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog().file().pick_folder(move |file| {
+        let _ = tx.send(file.map(|f| f.to_string()));
+    });
+    let picked = rx.recv().map_err(|e| e.to_string())?;
+    if let Some(dir) = &picked {
+        state.set_download_dir(dir.clone());
+        save_download_dir(&app, dir)?;
+    }
+    Ok(picked)
+}
+
+/// 支持一次粘贴多个链接（按空白分隔），逐个入队
+#[tauri::command]
+fn add_task(state: State<'_, SharedDownloader>, url: String) -> usize {
+    url.split_whitespace()
+        .filter(|s| !s.is_empty())
+        .map(|u| state.add_task(u.to_string()))
+        .count()
+}
+
+#[tauri::command]
+fn cancel_task(state: State<'_, SharedDownloader>, id: u64) {
+    state.cancel_task(id)
+}
+
+#[tauri::command]
+fn list_tasks(state: State<'_, SharedDownloader>) -> Vec<downloader::Task> {
+    state.tasks()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![greet])
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let ytdlp = {
+                let bundled = app.path().resource_dir()?.join("binaries").join("yt-dlp.exe");
+                if bundled.exists() {
+                    bundled
+                } else {
+                    // 开发环境：resource 目录不存在，直接用仓库里的二进制
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries").join("yt-dlp.exe")
+                }
+            };
+            if !ytdlp.exists() {
+                return Err("未找到 yt-dlp 引擎（src-tauri/binaries/yt-dlp.exe）".into());
+            }
+            let dir = load_download_dir(app.handle());
+            app.manage(Arc::new(Downloader::new(app.handle().clone(), ytdlp, dir)));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_download_dir,
+            select_download_dir,
+            add_task,
+            cancel_task,
+            list_tasks
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application")
 }

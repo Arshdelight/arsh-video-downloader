@@ -35,3 +35,6 @@ src-tauri/gen/schemas
 
 # test coverage
 coverage/
+
+# 下载引擎二进制（构建前下载：见 README）
+src-tauri/binaries/yt-dlp.exe

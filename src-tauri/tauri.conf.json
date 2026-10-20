@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Arshvideodownloader",
+  "productName": "ArshVideoDownloader",
   "version": "0.1.0",
   "identifier": "com.arshdelight.arshvideodownloader",
   "build": {
@@ -13,11 +13,11 @@
     "windows": [
       {
         "label": "main",
-        "title": "Arshvideodownloader",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 800,
-        "minHeight": 600,
+        "title": "ArshVideoDownloader",
+        "width": 720,
+        "height": 640,
+        "minWidth": 560,
+        "minHeight": 480,
         "decorations": false,
         "backgroundColor": "#f1f5f9"
       }
@@ -29,6 +29,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "binaries/yt-dlp.exe"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
