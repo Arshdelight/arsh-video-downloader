@@ -234,6 +234,9 @@ impl Downloader {
                 "--no-warnings",
                 "--socket-timeout",
                 "30",
+                // Errno 22 两大来源的兜底：不回写文件 mtime；强制 Windows 安全文件名
+                "--no-mtime",
+                "--windows-filenames",
                 "-P",
                 &dir,
                 "-o",
@@ -286,7 +289,7 @@ impl Downloader {
         Err(if msg.trim().is_empty() {
             format!("yt-dlp 异常退出（{:?}）", status.code())
         } else {
-            last_stderr_line(msg.as_bytes())
+            last_stderr_context(msg.as_bytes())
         })
     }
 
@@ -332,10 +335,28 @@ fn last_stderr_line(stderr: &[u8]) -> String {
     text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("下载失败").trim().to_string()
 }
 
-/// 文件名安全化：替换非法字符、截断长度
+/// 下载失败时保留 stderr 末尾几行作为任务错误信息，便于定位
+fn last_stderr_context(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let start = lines.len().saturating_sub(4);
+    let joined = lines[start..].join(" ｜ ");
+    let mut chars: Vec<char> = joined.chars().collect();
+    if chars.len() > 400 {
+        chars = chars.split_off(chars.len() - 400);
+    }
+    if chars.is_empty() { "下载失败".into() } else { chars.into_iter().collect() }
+}
+
+/// 文件名安全化：去掉控制字符/零宽字符（抖音简介里常见，Windows 打开会 EINVAL）、
+/// 替换文件系统非法字符、截断长度
 fn sanitize_filename(name: &str) -> String {
     let cleaned: String = name
         .chars()
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(*c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
+        })
         .map(|c| {
             if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
                 '_'
@@ -344,14 +365,14 @@ fn sanitize_filename(name: &str) -> String {
             }
         })
         .collect();
-    let trimmed = cleaned.trim().trim_end_matches('.').to_string();
+    let trimmed = cleaned.trim().trim_end_matches(['.', ' ']).to_string();
     let short: String = trimmed.chars().take(80).collect();
     if short.is_empty() { "video".into() } else { short }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_urls, parse_progress};
+    use super::{extract_urls, parse_progress, sanitize_filename};
 
     #[test]
     fn extracts_urls_from_share_text() {
@@ -393,5 +414,16 @@ mod tests {
     fn rejects_non_progress_lines() {
         assert!(parse_progress("[download] Destination: C:\\a.mp4").is_none());
         assert!(parse_progress("[generic] Falling back...").is_none());
+    }
+
+    #[test]
+    fn sanitizes_invisible_and_illegal_chars() {
+        // 零宽字符 / 双向控制符（抖音简介常见）会被 Windows open() 以 EINVAL 拒绝
+        assert_eq!(
+            sanitize_filename("当羊羊\u{200b}撞车\u{202e}S1: 对局*好看?"),
+            "当羊羊撞车S1_ 对局_好看_"
+        );
+        assert_eq!(sanitize_filename("  尾巴点.  "), "尾巴点");
+        assert_eq!(sanitize_filename("\u{200b}\u{feff}"), "video");
     }
 }
