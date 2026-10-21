@@ -19,7 +19,7 @@ import {
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
-import { AppLayout, TitleBar, Button, Dialog } from './ui'
+import { AppLayout, TitleBar, Button, Dialog, Switch } from './ui'
 import { cn } from './lib/utils'
 import { hasNativeBridge } from './lib/tauri'
 import { api, type Task } from './lib/api'
@@ -270,6 +270,7 @@ export default function App() {
   const [appVersion, setAppVersion] = useState('')
   const [engines, setEngines] = useState({ ytdlp: true, ffmpeg: true, parsehub: true })
   const [checkState, setCheckState] = useState<'idle' | 'checking' | 'latest' | 'available'>('idle')
+  const [mirrorEnabled, setMirrorEnabled] = useState(true)
 
   useEffect(() => {
     if (!hasNativeBridge) return
@@ -289,6 +290,7 @@ export default function App() {
     // 每次打开设置页刷新版本与引擎状态
     api.getAppVersion().then(setAppVersion).catch(() => {})
     api.engineStatus().then(setEngines).catch(() => {})
+    api.getUpdateMirror().then(setMirrorEnabled).catch(() => {})
   }, [settingsOpen])
 
   const checkNow = () => {
@@ -447,9 +449,7 @@ export default function App() {
             <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
               <Link2 className="size-8 text-line" />
               <p className="text-sm text-muted">还没有下载任务</p>
-              <p className="text-xs text-dim">
-                粘贴视频链接或整段分享文案即可开始，支持抖音、B站、YouTube、Twitter 等数十个站点
-              </p>
+              <p className="text-xs text-dim">在上方粘贴链接或分享文案，点击「添加下载」即可</p>
             </div>
           ) : (
             <>
@@ -541,6 +541,19 @@ export default function App() {
                 )}
               </div>
             )}
+            <div className="flex items-center justify-between pt-1">
+              <div>
+                <span className="text-sm text-muted">更新加速线路</span>
+                <p className="text-xs text-dim">GitHub 连不上时自动改走镜像下载更新</p>
+              </div>
+              <Switch
+                checked={mirrorEnabled}
+                onChange={(v) => {
+                  setMirrorEnabled(v)
+                  api.setUpdateMirror(v).catch(() => {})
+                }}
+              />
+            </div>
           </div>
 
           <div className="h-px bg-line" />

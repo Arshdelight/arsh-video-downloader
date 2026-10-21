@@ -4,12 +4,20 @@ mod parsehub_probe;
 use downloader::{Downloader, Task};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::UpdaterExt;
 
 type SharedDownloader = Arc<Downloader>;
+
+/// 更新清单直连地址与镜像线路：直连失败后依次尝试的公益加速前缀
+/// （域名时效性强，失效时换域名发新版即可）。更新包有 minisign 验签，
+/// 镜像被篡改只会导致安装失败，不影响安全性。
+const UPDATE_MANIFEST: &str =
+    "https://github.com/Arshdelight/arsh-video-downloader/releases/latest/download/latest.json";
+const UPDATE_MIRRORS: &[&str] = &["https://ghfast.top/", "https://gh-proxy.com/", "https://ghproxy.net/"];
 
 /// 当前待安装的更新（check_update 后暂存，install_update 消费）
 struct UpdateState(std::sync::Mutex<Option<tauri_plugin_updater::Update>>);
@@ -37,16 +45,29 @@ fn tasks_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     data_dir(app).map(|d| d.join("tasks.json"))
 }
 
+/// 读取 config.json 整体（字段缺省/文件不存在时返回空对象）
+fn load_config(app: &tauri::AppHandle) -> serde_json::Value {
+    config_path(app)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// 读-改-写更新单个配置字段，避免多处保存互相覆盖
+fn save_config_field(app: &tauri::AppHandle, key: &str, value: serde_json::Value) -> Result<(), String> {
+    let p = config_path(app).ok_or("无法定位数据目录")?;
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut config = load_config(app);
+    config[key] = value;
+    std::fs::write(&p, config.to_string()).map_err(|e| e.to_string())
+}
+
 fn load_download_dir(app: &tauri::AppHandle) -> String {
-    if let Some(p) = config_path(app) {
-        if let Ok(text) = std::fs::read_to_string(&p) {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
-                if let Some(dir) = v["downloadDir"].as_str() {
-                    if !dir.is_empty() {
-                        return dir.to_string();
-                    }
-                }
-            }
+    if let Some(dir) = load_config(app)["downloadDir"].as_str() {
+        if !dir.is_empty() {
+            return dir.to_string();
         }
     }
     app.path()
@@ -56,12 +77,12 @@ fn load_download_dir(app: &tauri::AppHandle) -> String {
 }
 
 fn save_download_dir(app: &tauri::AppHandle, dir: &str) -> Result<(), String> {
-    let p = config_path(app).ok_or("无法定位数据目录")?;
-    if let Some(parent) = p.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let json = serde_json::json!({ "downloadDir": dir });
-    std::fs::write(&p, json.to_string()).map_err(|e| e.to_string())
+    save_config_field(app, "downloadDir", serde_json::json!(dir))
+}
+
+/// 更新镜像线路开关（默认开启；关闭后只走 GitHub 直连）
+fn load_update_mirror(app: &tauri::AppHandle) -> bool {
+    load_config(app)["updateMirror"].as_bool().unwrap_or(true)
 }
 
 /// 恢复历史任务（跨会话持久化）。上次退出时还在排队/下载中的任务由
@@ -200,15 +221,64 @@ fn open_repo(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_update_mirror(app: tauri::AppHandle) -> bool {
+    load_update_mirror(&app)
+}
+
+#[tauri::command]
+fn set_update_mirror(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    save_config_field(&app, "updateMirror", serde_json::json!(enabled))
+}
+
+/// 用指定线路（直连或单个镜像前缀）构建 updater；15s 超时让不通的线路快速失败
+fn updater_via(app: &tauri::AppHandle, prefix: &str) -> Result<tauri_plugin_updater::Updater, String> {
+    let url = format!("{prefix}{UPDATE_MANIFEST}")
+        .parse::<tauri::Url>()
+        .map_err(|e| e.to_string())?;
+    app.updater_builder()
+        .endpoints(vec![url])
+        .map_err(|e| e.to_string())?
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn check_update(
     app: tauri::AppHandle,
     state: State<'_, UpdateState>,
 ) -> Result<Option<String>, String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    let update = updater.check().await.map_err(|e| e.to_string())?;
-    let version = update.as_ref().map(|u| u.version.clone());
-    *state.0.lock().unwrap() = update;
-    Ok(version)
+    // 先直连 GitHub；连不上时依次尝试镜像线路（设置里可关）
+    match updater_via(&app, "")?.check().await {
+        Ok(update) => {
+            let version = update.as_ref().map(|u| u.version.clone());
+            *state.0.lock().unwrap() = update;
+            return Ok(version);
+        }
+        Err(_) => {}
+    }
+    if load_update_mirror(&app) {
+        for mirror in UPDATE_MIRRORS {
+            match updater_via(&app, mirror)?.check().await {
+                Ok(Some(mut update)) => {
+                    // 清单来自镜像，下载地址同样挂到该镜像前缀
+                    let direct_url = update.download_url.to_string();
+                    if let Ok(prefixed) = format!("{mirror}{direct_url}").parse() {
+                        update.download_url = prefixed;
+                    }
+                    let version = update.version.clone();
+                    *state.0.lock().unwrap() = Some(update);
+                    return Ok(Some(version));
+                }
+                Ok(None) => {
+                    *state.0.lock().unwrap() = None;
+                    return Ok(None);
+                }
+                Err(_) => continue,
+            }
+        }
+    }
+    Err("更新检查失败：GitHub 直连与镜像线路均不可达".into())
 }
 
 /// 下载并静默安装更新，完成后自动重启应用（仅安装版）
@@ -336,6 +406,8 @@ pub fn run() {
             is_installed,
             check_update,
             install_update,
+            get_update_mirror,
+            set_update_mirror,
             get_app_version,
             engine_status,
             open_data_dir,

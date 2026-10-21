@@ -43,6 +43,10 @@ export const api = {
     hasNativeBridge ? invoke<string | null>('check_update') : Promise.resolve(null),
   installUpdate: (): Promise<void> =>
     hasNativeBridge ? invoke<void>('install_update') : Promise.resolve(),
+  getUpdateMirror: (): Promise<boolean> =>
+    hasNativeBridge ? invoke<boolean>('get_update_mirror') : Promise.resolve(true),
+  setUpdateMirror: (enabled: boolean): Promise<void> =>
+    hasNativeBridge ? invoke<void>('set_update_mirror', { enabled }) : Promise.resolve(),
   getAppVersion: (): Promise<string> =>
     hasNativeBridge ? invoke<string>('get_app_version') : Promise.resolve('0.0.0-dev'),
   engineStatus: (): Promise<{ ytdlp: boolean; ffmpeg: boolean; parsehub: boolean }> =>
