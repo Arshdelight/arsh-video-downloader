@@ -11,6 +11,29 @@
 
 import json
 import sys
+import types
+
+
+def _install_stubs() -> None:
+    """注入 cv2/PIL 空壳模块。
+
+    parsehub 的 parser 注册是 eager import，会经 utils/media_info.py 拉起
+    cv2+numpy+PIL（约 150MB）；而这三者只服务于读取微博/Twitter 图集
+    落盘后的文件信息，探针流程不会执行该路径。配合打包时的
+    --exclude-module 排除真库。
+    """
+    cv2 = types.ModuleType("cv2")
+    cv2.VideoCapture = object
+    cv2.CAP_PROP_FRAME_WIDTH = 0
+    cv2.CAP_PROP_FRAME_HEIGHT = 0
+    cv2.CAP_PROP_FPS = 0
+    cv2.CAP_PROP_FRAME_COUNT = 0
+    pil = types.ModuleType("PIL")
+    pil_image = types.ModuleType("PIL.Image")
+    pil_image.open = object
+    pil.Image = pil_image
+    for name, mod in (("cv2", cv2), ("PIL", pil), ("PIL.Image", pil_image)):
+        sys.modules.setdefault(name, mod)
 
 
 def main() -> None:
@@ -19,6 +42,7 @@ def main() -> None:
         return
     url = sys.argv[1]
     try:
+        _install_stubs()
         from parsehub import ParseHub
 
         result = ParseHub().parse_sync(url)

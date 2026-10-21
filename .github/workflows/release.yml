@@ -27,12 +27,16 @@ jobs:
       # 引擎二进制不入库，构建时下载（runner 上 GitHub 全速）
       - name: Install engines (yt-dlp + ffmpeg)
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
           curl.exe -L -o src-tauri/binaries/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
-          winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
-          $ff = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe |
-            Select-Object -First 1 -ExpandProperty FullName
+          # ffmpeg 取 Gyan essentials 构建（约 100MB，足够 DASH 合并；winget 装的 full 版 230MB）
+          $url = gh api repos/GyanD/codexffmpeg/releases/latest --jq '.assets[].browser_download_url | select(contains("essentials_build.zip"))'
+          curl.exe -L -o ffmpeg-essentials.zip $url
+          Expand-Archive ffmpeg-essentials.zip -DestinationPath ffmpeg-tmp -Force
+          $ff = Get-ChildItem ffmpeg-tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1 -ExpandProperty FullName
           Copy-Item $ff src-tauri/binaries/ffmpeg.exe
 
       - name: Build parsehub sidecar

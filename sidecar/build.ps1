@@ -1,4 +1,4 @@
-# 打包 ParseHub 解析 sidecar 为 onedir exe（输出 src-tauri/binaries/parsehub-sidecar/）
+﻿# 打包 ParseHub 解析 sidecar 为 onedir exe（输出 src-tauri/binaries/parsehub-sidecar/）
 # 用法: powershell -NoProfile -ExecutionPolicy Bypass -File sidecar/build.ps1
 $ErrorActionPreference = 'Stop'
 
@@ -18,9 +18,13 @@ $py = Join-Path $venvDir 'Scripts/python.exe'
 $workDir = Join-Path $sidecarDir 'build-work'
 New-Item -ItemType Directory -Force -Path $workDir | Out-Null
 Push-Location $workDir
+# 排除 cv2/numpy/PIL（约 150MB）：仅 parsehub.utils.media_info 用于读取
+# 微博/Twitter 图集落盘后的文件信息，探针不执行该路径；运行时由
+# parsehub_probe.py 注入空壳模块顶住 eager import 链
 & $py -m PyInstaller --noconfirm --clean --onedir --name parsehub-probe `
     --hidden-import parsehub --collect-submodules parsehub `
     --collect-data urlextract `
+    --exclude-module cv2 --exclude-module numpy --exclude-module PIL `
     (Join-Path $sidecarDir 'parsehub_probe.py')
 Pop-Location
 

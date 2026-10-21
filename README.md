@@ -55,9 +55,11 @@ npm run lint && npm test
 # yt-dlp（必需）
 curl -L -o src-tauri/binaries/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
 
-# ffmpeg（必需，合并 DASH 分离流；winget 安装后复制，或任一下载渠道）
-winget install Gyan.FFmpeg
-# 复制 %LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg*\*\bin\ffmpeg.exe 到 src-tauri/binaries/
+# ffmpeg（必需，合并 DASH 分离流）
+# 用 Gyan 的 essentials 构建（约 100MB，足够 DASH 合并；full 版 230MB 没必要）。
+# 到 https://github.com/GyanD/codexffmpeg/releases/latest 下载 ffmpeg-x.y.z-essentials_build.zip，
+# 解压取 bin/ffmpeg.exe 放到 src-tauri/binaries/。直连不畅时可在 URL 前加镜像前缀，
+# 如 https://ghfast.top/https://github.com/...
 
 # ParseHub 解析 sidecar（会自动建 venv 并用 PyInstaller 打包，详见 sidecar/build.ps1）
 powershell -NoProfile -ExecutionPolicy Bypass -File sidecar/build.ps1
