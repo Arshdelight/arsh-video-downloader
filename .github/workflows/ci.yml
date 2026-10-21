@@ -68,18 +68,23 @@ jobs:
       - name: Build sidecar and verify size
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
           powershell -NoProfile -ExecutionPolicy Bypass -File sidecar/build.ps1
+          Write-Host "===VERSIONS==="
+          & sidecar/.venv/Scripts/python.exe -m pip list |
+            Select-String -Pattern 'parsehub|PyInstaller|opencv|numpy|Pillow|Pillow'
           $size = (Get-ChildItem -Recurse src-tauri/binaries/parsehub-sidecar |
             Measure-Object -Property Length -Sum).Sum / 1MB
-          Write-Host "sidecar size: $([math]::Round($size))MB"
-          python --version
-          & sidecar/.venv/Scripts/python.exe -m pip show pyinstaller parsehub opencv-python-headless |
-            Select-String '^Name|^Version'
-          $warn = 'sidecar/build-work/build/parsehub-probe/warn-parsehub-probe.txt'
-          if (Test-Path $warn) {
-            Select-String -Path $warn -Pattern 'cv2|numpy|PIL' | Select-Object -First 20
-          }
+          Write-Host "SIDECAR_SIZE_MB=$([math]::Round($size))"
+          Write-Host "HAS_CV2=$(Test-Path src-tauri/binaries/parsehub-sidecar/_internal/cv2)"
           if ($size -gt 80) {
             Write-Host "::error::sidecar 超过 80MB，cv2/numpy/PIL 排除失效"
             exit 1
           }
+
+      - name: Upload build graph diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-build-work
+          path: sidecar/build-work/build/parsehub-probe/
