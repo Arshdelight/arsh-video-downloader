@@ -12,8 +12,10 @@ if (-not (Test-Path (Join-Path $venvDir 'Scripts/python.exe'))) {
 }
 $py = Join-Path $venvDir 'Scripts/python.exe'
 & $py -m pip install -q --upgrade pip
-# 只装库本体（[cli] 扩展会带入大量 CLI 专用依赖），sidecar 只用库 API
-& $py -m pip install -q 'parsehub' 'pyinstaller'
+# 只装库本体（[cli] 扩展会带入大量 CLI 专用依赖），sidecar 只用库 API。
+# parsehub 锁定已验证版本：不锁的话发版可能撞上游新版本的打包回归
+# （v0.1.5 就因此打进了 150MB 的 cv2）；升级时改版本号并靠 CI 守卫验证
+& $py -m pip install -q 'parsehub==2.3.13' 'pyinstaller'
 
 $workDir = Join-Path $sidecarDir 'build-work'
 New-Item -ItemType Directory -Force -Path $workDir | Out-Null
