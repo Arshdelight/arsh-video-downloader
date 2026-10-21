@@ -62,7 +62,9 @@ fn sidecar_exe(app: &AppHandle) -> Result<PathBuf, String> {
 fn spawn_sidecar(exe: &PathBuf, url: &str) -> Result<std::process::Child, String> {
     let mut cmd = Command::new(exe);
     cmd.arg(url).stdout(Stdio::piped()).stderr(Stdio::piped());
-    // sidecar 是 PyInstaller 打包的 Python 程序，强制 UTF-8 输出
+    // sidecar 是 PyInstaller 打包的 Python 程序。注：PyInstaller bootloader
+    // 会忽略 PYTHONUTF8 等变量，UTF-8 输出由 parsehub_probe.py 内部
+    // reconfigure 保证，这里注入仅作语义说明
     cmd.env("PYTHONUTF8", "1").env("PYTHONIOENCODING", "utf-8");
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);

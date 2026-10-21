@@ -13,6 +13,12 @@ import json
 import sys
 import types
 
+# PyInstaller bootloader 忽略 PYTHONUTF8/PYTHONIOENCODING 环境变量，
+# stdout 默认随系统 ANSI（中文 Windows = GBK）；中文标题必须强制 UTF-8，
+# 否则调用方按 UTF-8 解码会得到乱码文件名
+for _stream in (sys.stdout, sys.stderr):
+    _stream.reconfigure(encoding="utf-8")
+
 
 def _install_stubs() -> None:
     """注入 cv2/PIL 空壳模块。

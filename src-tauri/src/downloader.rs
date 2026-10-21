@@ -18,11 +18,23 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 fn new_command(ytdlp: &PathBuf) -> Command {
     let mut cmd = Command::new(ytdlp);
     // yt-dlp 是 Python 程序：管道输出默认走系统 ANSI（中文 Windows = GBK），
-    // 强制 UTF-8，否则进度行里的中文文件名会产生非法字节流
+    // 强制 UTF-8，否则进度行里的中文文件名会产生非法字节流。
+    // 注：PyInstaller bootloader 会忽略这些变量，实测输出仍是 GBK，
+    // 解码端在 decode_bytes 里做了 GBK 回退
     cmd.env("PYTHONUTF8", "1").env("PYTHONIOENCODING", "utf-8");
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
+}
+
+/// 解码 yt-dlp 的管道输出：合法 UTF-8 原样保留（-J 等机器可读输出），
+/// 含非法字节时按 GBK 回退（中文 Windows 的 --print filepath 等人类
+/// 可读输出随 ANSI 代码页）
+fn decode_bytes(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(s) => s.to_string(),
+        Err(_) => encoding_rs::GBK.decode(bytes).0.into_owned(),
+    }
 }
 
 /// 从整段分享文案里提取链接：只有 http(s)/www 开头的 token 才算，
@@ -504,7 +516,7 @@ impl Downloader {
             match reader.read_until(b'\n', &mut raw) {
                 Ok(0) => break,
                 Ok(_) => {
-                    let line = String::from_utf8_lossy(&raw);
+                    let line = decode_bytes(&raw);
                     let trimmed = line.trim();
                     if !trimmed.is_empty() && !trimmed.starts_with('[') {
                         // --print after_move:filepath 的输出：裸路径行
@@ -537,7 +549,7 @@ impl Downloader {
             return Ok(());
         }
         let raw = last_err.lock().unwrap().clone();
-        let msg = String::from_utf8_lossy(&raw).into_owned();
+        let msg = decode_bytes(&raw);
         Err(if msg.trim().is_empty() {
             format!("yt-dlp 异常退出（{:?}）", status.code())
         } else {
@@ -583,13 +595,13 @@ impl Downloader {
 }
 
 fn last_stderr_line(stderr: &[u8]) -> String {
-    let text = String::from_utf8_lossy(stderr);
+    let text = decode_bytes(stderr);
     text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("下载失败").trim().to_string()
 }
 
 /// 下载失败时保留 stderr 末尾几行作为任务错误信息，便于定位
 fn last_stderr_context(stderr: &[u8]) -> String {
-    let text = String::from_utf8_lossy(stderr);
+    let text = decode_bytes(stderr);
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     let start = lines.len().saturating_sub(4);
     let joined = lines[start..].join(" ｜ ");
@@ -602,7 +614,16 @@ fn last_stderr_context(stderr: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_urls, parse_progress, sanitize_filename};
+    use super::{decode_bytes, extract_urls, parse_progress, sanitize_filename};
+
+    /// yt-dlp 的 --print filepath 在中文 Windows 输出 GBK（"如何"= C8E7 BACE），
+    /// decode_bytes 需将其正确还原；合法 UTF-8 输入必须原样保留
+    #[test]
+    fn decodes_gbk_output_lines() {
+        let gbk: &[u8] = b"C:\\tmp\\\xc8\xe7\xba\xce.mp4";
+        assert_eq!(decode_bytes(gbk), "C:\\tmp\\如何.mp4");
+        assert_eq!(decode_bytes("C:\\tmp\\视频.mp4".as_bytes()), "C:\\tmp\\视频.mp4");
+    }
 
     #[test]
     fn extracts_urls_from_share_text() {

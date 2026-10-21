@@ -19,6 +19,9 @@ tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# yt-dlp（PyInstaller exe）的 stdout 在中文 Windows 随 ANSI 代码页（GBK），
+# PYTHONUTF8 环境变量对其无效；非法 UTF-8 的输出行需要按 GBK 回退解码
+encoding_rs = "0.8"
 
 [profile.release]
 # 控制产物体积：发布构建去符号 + LTO（需要更快增量编译时可注释掉）
