@@ -58,3 +58,28 @@ jobs:
 
       - run: cargo check
         working-directory: src-tauri
+
+  # sidecar 瘦身守卫：cv2/numpy/PIL 被打进产物时在 CI 就拦下
+  sidecar:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sidecar and verify size
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File sidecar/build.ps1
+          $size = (Get-ChildItem -Recurse src-tauri/binaries/parsehub-sidecar |
+            Measure-Object -Property Length -Sum).Sum / 1MB
+          Write-Host "sidecar size: $([math]::Round($size))MB"
+          python --version
+          & sidecar/.venv/Scripts/python.exe -m pip show pyinstaller parsehub opencv-python-headless |
+            Select-String '^Name|^Version'
+          $warn = 'sidecar/build-work/build/parsehub-probe/warn-parsehub-probe.txt'
+          if (Test-Path $warn) {
+            Select-String -Path $warn -Pattern 'cv2|numpy|PIL' | Select-Object -First 20
+          }
+          if ($size -gt 80) {
+            Write-Host "::error::sidecar 超过 80MB，cv2/numpy/PIL 排除失效"
+            exit 1
+          }
