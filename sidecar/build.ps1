@@ -12,10 +12,10 @@ if (-not (Test-Path (Join-Path $venvDir 'Scripts/python.exe'))) {
 }
 $py = Join-Path $venvDir 'Scripts/python.exe'
 & $py -m pip install -q --upgrade pip
-# 只装库本体（[cli] 扩展会带入大量 CLI 专用依赖），sidecar 只用库 API。
-# parsehub 锁定已验证版本：不锁的话发版可能撞上游新版本的打包回归
-# （v0.1.5 就因此打进了 150MB 的 cv2）；升级时改版本号并靠 CI 守卫验证
-& $py -m pip install -q 'parsehub==2.3.13' 'pyinstaller'
+# 依赖走锁文件（requirements.txt 由验证过的瘦构建环境 pip freeze 生成）：
+# 浮动安装会在发版时撞上游新版本的打包回归（v0.1.5/v0.1.6 均因此打进
+# 150MB 的 cv2）；升级依赖时重新 freeze 并靠 CI 的 sidecar 守卫验证
+& $py -m pip install -q -r (Join-Path $sidecarDir 'requirements.txt')
 
 $workDir = Join-Path $sidecarDir 'build-work'
 New-Item -ItemType Directory -Force -Path $workDir | Out-Null
