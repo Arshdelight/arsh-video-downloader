@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -41,7 +42,12 @@ jobs:
 
       - name: Build parsehub sidecar
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File sidecar/build.ps1
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File sidecar/build.ps1
+          $size = (Get-ChildItem -Recurse src-tauri/binaries/parsehub-sidecar |
+            Measure-Object -Property Length -Sum).Sum / 1MB
+          Write-Host "SIDECAR_SIZE_MB=$([math]::Round($size))"
+          Write-Host "HAS_CV2=$(Test-Path src-tauri/binaries/parsehub-sidecar/_internal/cv2)"
 
       - name: Build + sign app
         shell: pwsh
@@ -53,6 +59,7 @@ jobs:
           npx tauri build --bundles nsis
 
       - name: Publish release + latest.json
+        if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
